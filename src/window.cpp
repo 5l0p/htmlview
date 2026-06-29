@@ -5,14 +5,13 @@
 #include <X11/cursorfont.h>
 #include <Imlib2.h>
 
-#include <sys/stat.h>
-
 #include <algorithm>
 #include <cmath>
 #include <cstdio>
 #include <fstream>
 #include <sstream>
 
+#include "cgi.h"
 #include "css.h"
 #include "font.h"
 #include "html_parser.h"
@@ -84,23 +83,152 @@ bool read_file(const std::string& path, std::string& out) {
     return true;
 }
 
-Page load_page(const std::string& path) {
+// Build a Page from HTML source (shared by the file and CGI loaders).
+Page build_page(std::string src, std::string base_dir, const std::string& title_fallback) {
     Page pg;
-    std::string src;
-    if (!read_file(path, src)) {
-        std::fprintf(stderr, "htmlview: cannot read %s\n", path.c_str());
-        return pg;
-    }
     pg.doc = parse_html(src);
-    size_t slash = path.find_last_of('/');
-    pg.doc.base_dir = (slash == std::string::npos) ? "." : path.substr(0, slash);
+    pg.doc.base_dir = std::move(base_dir);
     pg.rules = parse_css(pg.doc.css);
     pg.has_hover = stylesheet_has_hover(pg.rules);
     pg.styles = resolve_styles(pg.doc, pg.rules);
     init_form_state(pg.doc.root.get(), pg.form);
-    pg.title = pg.doc.title.empty() ? path : pg.doc.title;
+    pg.title = pg.doc.title.empty() ? title_fallback : pg.doc.title;
     pg.ok = true;
     return pg;
+}
+
+std::string html_escape(const std::string& s) {
+    std::string out;
+    for (char c : s) {
+        if (c == '<') out += "&lt;";
+        else if (c == '>') out += "&gt;";
+        else if (c == '&') out += "&amp;";
+        else out += c;
+    }
+    return out;
+}
+
+// A generic, self-contained error page shown in the window so failures are
+// visible directly rather than only on stderr.
+Page make_error_page(const std::string& heading, const std::string& detail) {
+    std::string html =
+        "<title>" + html_escape(heading) + "</title>"
+        "<style>"
+        "  body { font-family: sans-serif; margin: 28px; background: #ffffff; color: #222; }"
+        "  .err { border: 2px solid #cc3333; background: #fff0f0; padding: 14px 18px; }"
+        "  h1 { color: #cc3333; font-size: 22px; margin: 0 0 8px 0; }"
+        "  code { background: #f2f2f2; padding: 1px 3px; }"
+        "</style>"
+        "<body><div class=\"err\"><h1>" + html_escape(heading) + "</h1>"
+        "<p><code>" + html_escape(detail) + "</code></p></div></body>";
+    Page pg = build_page(std::move(html), "", heading);
+    return pg;
+}
+
+Page load_file_page(const std::string& path) {
+    std::string src;
+    if (!read_file(path, src)) {
+        std::fprintf(stderr, "htmlview: cannot read %s\n", path.c_str());
+        return make_error_page("Page not found", path + " could not be opened");
+    }
+    size_t slash = path.find_last_of('/');
+    std::string base = (slash == std::string::npos) ? "." : path.substr(0, slash);
+    return build_page(std::move(src), base, path);
+}
+
+// Run a CGI request for `target` ("path?query") and build a Page from the
+// response, following Location: redirects. base_dir is empty (no local assets).
+Page load_cgi_page(const std::string& program, const std::string& target) {
+    std::string t = target;
+    for (int hop = 0; hop < 8; ++hop) {
+        std::string path = t, query;
+        if (size_t q = t.find('?'); q != std::string::npos) {
+            path = t.substr(0, q);
+            query = t.substr(q + 1);
+        }
+        if (path.empty()) path = "/";
+        CgiResponse r = run_cgi(program, "GET", path, query);
+        if (!r.ok)
+            return make_error_page("CGI error",
+                                   (r.error.empty() ? "request failed" : r.error) +
+                                       " (" + program + ")");
+        if (!r.location.empty() && (r.status / 100) == 3) { t = r.location; continue; }
+        std::string ct = r.content_type;
+        std::string body = r.body;
+        if (ct.rfind("text/plain", 0) == 0)
+            body = "<pre>" + html_escape(body) + "</pre>";
+        return build_page(std::move(body), "", path);
+    }
+    return build_page("<title>CGI</title><p>too many redirects</p>", "", "CGI");
+}
+
+// --- form serialization -------------------------------------------------
+
+std::string url_encode(const std::string& s) {
+    static const char* hex = "0123456789ABCDEF";
+    std::string out;
+    for (unsigned char c : s) {
+        if (std::isalnum(c) || c == '-' || c == '_' || c == '.' || c == '~') out += (char)c;
+        else if (c == ' ') out += '+';
+        else { out += '%'; out += hex[c >> 4]; out += hex[c & 0xF]; }
+    }
+    return out;
+}
+
+const Element* enclosing_form(const Element* e) {
+    for (const Node* n = e; n; n = n->parent)
+        if (n->is_element() && static_cast<const Element*>(n)->tag == Tag::Form)
+            return static_cast<const Element*>(n);
+    return nullptr;
+}
+
+void gather_fields(const Node* n, const FormState& fs, const Element* clicked,
+                   std::string& out) {
+    if (!n->is_element()) return;
+    const auto* e = static_cast<const Element*>(n);
+    const std::string* name = e->attr("name");
+    auto add = [&](const std::string& key, const std::string& val) {
+        if (!out.empty()) out += "&";
+        out += url_encode(key) + "=" + url_encode(val);
+    };
+    if (name) {
+        auto val_attr = [&](const char* def) {
+            const std::string* v = e->attr("value");
+            return v ? *v : std::string(def);
+        };
+        if (e->tag == Tag::Input) {
+            std::string type = e->attr("type") ? *e->attr("type") : "text";
+            std::transform(type.begin(), type.end(), type.begin(),
+                           [](unsigned char c) { return (char)std::tolower(c); });
+            if (type == "checkbox" || type == "radio") {
+                auto it = fs.find(e);
+                if (it != fs.end() && it->second.checked) add(*name, val_attr("on"));
+            } else if (type == "submit" || type == "button") {
+                if (e == clicked) add(*name, val_attr(""));  // only the clicked submit
+            } else if (type == "hidden") {
+                add(*name, val_attr(""));
+            } else {  // text-like
+                auto it = fs.find(e);
+                add(*name, it != fs.end() ? it->second.text : val_attr(""));
+            }
+        } else if (e->tag == Tag::Textarea) {
+            auto it = fs.find(e);
+            add(*name, it != fs.end() ? it->second.text : "");
+        } else if (e->tag == Tag::Select) {
+            for (const auto& c : e->children)
+                if (c->is_element() &&
+                    static_cast<const Element*>(c.get())->tag == Tag::Option) {
+                    const auto* o = static_cast<const Element*>(c.get());
+                    const std::string* v = o->attr("value");
+                    std::string label;
+                    for (const auto& cc : o->children)
+                        if (cc->is_text()) label += static_cast<const Text*>(cc.get())->data;
+                    add(*name, v ? *v : label);
+                    break;  // first option (no selection tracking yet)
+                }
+        }
+    }
+    for (const auto& c : e->children) gather_fields(c.get(), fs, clicked, out);
 }
 
 // Deepest box under (px,py) in document coords that carries a link href.
@@ -114,16 +242,17 @@ const LayoutBox* find_link(const LayoutBox* box, float px, float py) {
     return found;
 }
 
-bool file_exists(const std::string& p) {
-    struct stat st;
-    return ::stat(p.c_str(), &st) == 0;
-}
-
 }  // namespace
 
-int run_window(const std::string& path) {
-    Page page = load_page(path);
+int run_window(const std::string& target0, const std::string& cgi_program) {
+    bool cgi_mode = !cgi_program.empty();
+    auto load_target = [&](const std::string& target) -> Page {
+        return cgi_mode ? load_cgi_page(cgi_program, target) : load_file_page(target);
+    };
+
+    Page page = load_target(target0);
     if (!page.ok) return 1;
+    std::string current_target = target0;
 
     Display* dpy = XOpenDisplay(nullptr);
     if (!dpy) { std::fprintf(stderr, "htmlview: cannot open X display\n"); return 1; }
@@ -158,8 +287,8 @@ int run_window(const std::string& path) {
     const Element* hovered = nullptr;
     const Element* focused = nullptr;  // focused text-input element
 
-    std::vector<std::string> history{path};  // resolved paths visited
-    size_t hindex = 0;                        // current position in history
+    std::vector<std::string> history{target0};  // targets visited
+    size_t hindex = 0;                           // current position in history
 
     auto relayout = [&]() {
         root = layout_document(page.doc, page.styles, fonts, (float)width);
@@ -183,9 +312,10 @@ int run_window(const std::string& path) {
     };
     // Load `target` into the view (no history change). Returns success.
     auto load_into = [&](const std::string& target) -> bool {
-        Page np = load_page(target);
+        Page np = load_target(target);
         if (!np.ok) return false;
         page = std::move(np);
+        current_target = target;
         XStoreName(dpy, win, page.title.c_str());
         scroll_y = 0;
         hovered = nullptr;
@@ -195,20 +325,39 @@ int run_window(const std::string& path) {
         repaint();
         return true;
     };
+    auto push_history = [&](const std::string& target) {
+        history.resize(hindex + 1);  // drop any forward history
+        history.push_back(target);
+        hindex = history.size() - 1;
+    };
     auto navigate = [&](const std::string& href) {
         if (href.rfind("http://", 0) == 0 || href.rfind("https://", 0) == 0) {
             std::fprintf(stderr, "htmlview: external link not followed: %s\n", href.c_str());
             return;
         }
-        std::string target = (href[0] == '/') ? href : page.doc.base_dir + "/" + href;
-        if (!file_exists(target)) {
-            std::fprintf(stderr, "htmlview: link target not found: %s\n", target.c_str());
-            return;
+        std::string target;
+        if (cgi_mode)
+            target = href;  // a request path (optionally ?query) to the program
+        else
+            target = (href[0] == '/') ? href : page.doc.base_dir + "/" + href;
+        // load_into always renders something (the page or an error page).
+        if (load_into(target)) push_history(target);
+    };
+    // Serialize the form enclosing `control` and issue a GET to its action.
+    auto submit_form = [&](const Element* control) {
+        const Element* form = enclosing_form(control);
+        std::string query;
+        if (form) gather_fields(form, page.form, control, query);
+        else if (control->attr("name")) gather_fields(control, page.form, control, query);
+
+        std::string action;
+        if (form && form->attr("action")) action = *form->attr("action");
+        if (action.empty()) {  // default: re-request the current path
+            action = current_target;
+            if (size_t q = action.find('?'); q != std::string::npos) action = action.substr(0, q);
         }
-        if (!load_into(target)) return;
-        history.resize(hindex + 1);  // drop any forward history
-        history.push_back(target);
-        hindex = history.size() - 1;
+        std::string target = query.empty() ? action : action + "?" + query;
+        if (load_into(target)) push_history(target);
     };
     auto go = [&](int delta) {
         long ni = (long)hindex + delta;
@@ -264,17 +413,26 @@ int run_window(const std::string& path) {
                     focused = nullptr;
                     if (w) {
                         switch (w->widget) {
-                            case WidgetKind::TextInput: focused = w->element; break;
+                            case WidgetKind::TextInput: focused = w->element; repaint(); break;
                             case WidgetKind::Checkbox:
                                 page.form[w->element].checked = !page.form[w->element].checked;
+                                repaint();
                                 break;
-                            case WidgetKind::Button:
-                                std::fprintf(stderr, "htmlview: button activated: %s\n",
-                                             w->text.c_str());
+                            case WidgetKind::Button: {
+                                const Element* be = w->element;
+                                std::string type = be->attr("type") ? *be->attr("type") : "";
+                                std::transform(type.begin(), type.end(), type.begin(),
+                                               [](unsigned char c) { return (char)std::tolower(c); });
+                                bool is_submit = (be->tag == Tag::Button && type != "button" &&
+                                                  type != "reset") ||
+                                                 (be->tag == Tag::Input && type == "submit");
+                                if (is_submit) { repaint(); submit_form(be); }
+                                else { std::fprintf(stderr, "htmlview: button: %s\n", w->text.c_str());
+                                       repaint(); }
                                 break;
-                            default: break;
+                            }
+                            default: repaint(); break;
                         }
-                        repaint();
                     } else if (const LayoutBox* link = find_link(root.get(), dx, dy)) {
                         navigate(link->href);
                     } else if (prev_focus) {

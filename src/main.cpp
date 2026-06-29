@@ -32,8 +32,8 @@ bool read_file(const char* path, std::string& out) {
 
 int usage() {
     std::fprintf(stderr,
-                 "usage: htmlview [--dump-dom] [--dump-style] "
-                 "[--render-to FILE.png] [--width N] <file.html>\n");
+                 "usage: htmlview [--dump-dom] [--dump-style] [--render-to FILE.png]\n"
+                 "                [--width N] [--cgi-bin PROGRAM [START_PATH]] <file.html>\n");
     return 2;
 }
 
@@ -42,6 +42,7 @@ int usage() {
 int main(int argc, char** argv) {
     const char* path = nullptr;
     const char* render_to = nullptr;
+    const char* cgi = nullptr;
     bool dump_dom = false, dump_style = false;
     int width = 800;
 
@@ -50,10 +51,21 @@ int main(int argc, char** argv) {
         else if (std::strcmp(argv[i], "--dump-style") == 0) dump_style = true;
         else if (std::strcmp(argv[i], "--render-to") == 0 && i + 1 < argc) render_to = argv[++i];
         else if (std::strcmp(argv[i], "--width") == 0 && i + 1 < argc) width = std::atoi(argv[++i]);
+        else if (std::strcmp(argv[i], "--cgi-bin") == 0 && i + 1 < argc) cgi = argv[++i];
         else if (argv[i][0] == '-') { std::fprintf(stderr, "unknown flag: %s\n", argv[i]); return usage(); }
         else path = argv[i];
     }
+
+    // CGI mode: the initial document comes from the program, not a file.
+    if (cgi)
+        return hv::run_window(path ? path : "/", cgi);
+
     if (!path) return usage();
+
+    // The plain window path lets run_window load the file (and show an in-window
+    // error page on failure). Only the dump/render paths read it here.
+    if (!dump_dom && !dump_style && !render_to)
+        return hv::run_window(path, "");
 
     std::string src;
     if (!read_file(path, src)) {
@@ -88,8 +100,5 @@ int main(int argc, char** argv) {
         return 0;
     }
 
-    if (render_to)
-        return hv::render_to_png(doc, styles, width, render_to);
-
-    return hv::run_window(path);
+    return hv::render_to_png(doc, styles, width, render_to);
 }

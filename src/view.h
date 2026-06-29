@@ -9,9 +9,11 @@
 
 namespace hv {
 
-// Open a live window for the document at `path`, loading it (and any local
-// links the user clicks) from disk.
-int run_window(const std::string& path);
+// Open a live window. `target0` is the initial document: a file path in file
+// mode, or a request path (e.g. "/") in CGI mode. If `cgi_program` is non-empty
+// the viewer runs it (classic CGI, re-spawned per request) for navigation and
+// GET form submissions instead of reading files.
+int run_window(const std::string& target0, const std::string& cgi_program = "");
 
 // Render the document at `width` px into a PNG via Imlib2. Returns 0 on success.
 int render_to_png(const Document& doc, const StyleMap& styles, int width,

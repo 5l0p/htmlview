@@ -3,15 +3,18 @@
 Roadmap for `htmlview`. Roughly ordered by value for the app-specific use case.
 
 ## Next up
-- [ ] **Form submission** — gather a `<form>`'s fields on submit and do
-      something useful (GET query string / callback); today a button click just
-      logs. Radio-button grouping; real `<select>` dropdown; textarea newlines.
+- [ ] **CGI: POST + body** — only GET form submits today; add POST (body on the
+      program's stdin) and a persistent-coprocess option for in-memory state.
+- [ ] **CGI: backend-served images/assets** (currently HTML/CSS only).
+- [ ] Radio-button grouping; real `<select>` dropdown; textarea newlines.
 - [ ] **Tab to move focus** between controls.
 - [ ] **Paint-only hover recolour** — `:hover` currently re-resolves + relays
       out on link enter/leave; a recolor-without-relayout path would remove the
       hitch on large pages.
 
 ## Done
+- [x] `--cgi-bin`: classic-CGI backend (re-spawn per request), link navigation
+      and GET form submission; in-window error page on load failure.
 - [x] `font-family` fallback list (fontconfig picks first available).
 - [x] Basic forms: text inputs, checkboxes, buttons (focus, keyboard entry,
       click dispatch); textarea + select render statically.

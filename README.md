@@ -23,6 +23,22 @@ htmlview --width 1000 <file.html>     # initial viewport width
 htmlview --render-to out.png <file>   # headless: rasterise to a PNG (Imlib2)
 htmlview --dump-dom   <file>          # print the parsed DOM tree
 htmlview --dump-style <file>          # print resolved computed styles
+htmlview --cgi-bin "PROGRAM" [/start] # run PROGRAM as a CGI backend (see below)
+```
+
+### CGI mode
+
+`--cgi-bin "PROGRAM"` turns htmlview into a thin client for a local backend:
+the program is run as a **classic CGI script** (re-spawned per request, via
+`/bin/sh -c`), with `REQUEST_METHOD`, `PATH_INFO`, `QUERY_STRING`, etc. in the
+environment. Its stdout (an optional `Content-Type`/`Status`/`Location` header
+block, then the body) is rendered. Link clicks issue GET requests to the
+program; form submits serialize named fields into the query string. Because each
+request is a fresh process, the backend persists its own state (a file, a db).
+See `test/counter.cgi` for a worked example:
+
+```sh
+htmlview --cgi-bin "python3 test/counter.cgi" /
 ```
 
 Window keys: arrows / PageUp / PageDown / Home / End and the mouse wheel scroll;
