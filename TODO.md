@@ -54,3 +54,58 @@ Roadmap for `htmlview`. Roughly ordered by value for the app-specific use case.
 ## Known limitations (intentional for v1)
 - Latin/Western text only — no HarfBuzz shaping or bidi.
 - No floats, positioning, or z-index.
+
+---
+
+# Standards-compliance roadmaps
+
+> Version note: there was never a formally standardised **HTML 1.1** — HTML 1.x
+> was the pre-standard, early-Mosaic-era document model. **HTML 2.0 (RFC 1866,
+> 1995)** was the first real standard. The two sections below are scoped to the
+> *gaps* relative to what htmlview already renders. Both predate CSS (CSS1 is
+> 1996), so "compliance" here means the elements + their default presentation;
+> our CSS engine is a bonus layer on top.
+
+## Toward the early-core HTML document model ("HTML 1.x")
+
+We already cover most of it: `html/head/body/title`, `h1`–`h6`, `p`, `pre`,
+`br`, `hr`, `a href`, `img`, `ul/ol/li`, `b/i/em/strong`. Remaining gaps:
+
+- [ ] **Block elements**: `<blockquote>` (indented margins), `<address>`
+      (italic block), `<dl>/<dt>/<dd>` definition lists (dd indented),
+      `<menu>`/`<dir>` (map to list layout).
+- [ ] **Phrase/typographic inlines**: `<code> <samp> <kbd> <var> <cite> <tt>`
+      (monospace / italic per element) and `<u>` (underline). Pure UA-default
+      additions — no new layout machinery.
+- [ ] **`<sub>` / `<sup>`** — needs inline vertical-shift + smaller font
+      (overlaps the `vertical-align` item under Layout fidelity).
+- [ ] **Named anchors + fragment navigation**: `<a name="x">` / `id="x"` targets
+      and `href="#x"` (and `file#x`) scrolling to the anchor. Reuses the existing
+      box tree + scroll machinery (find the target box's y, set scroll).
+- [ ] **`alt` text** rendered when an `<img>` is missing/unloadable.
+- [ ] **Fuller ISO Latin-1 entity coverage** (we ship a curated subset; see the
+      Parsing item above).
+
+## Toward HTML 2.0 (RFC 1866) features
+
+Beyond the core model, 2.0's distinctive additions — and our gaps:
+
+- [ ] **Complete the forms model** (we have text/checkbox/button + GET submit):
+  - [ ] `radio` grouping (one selected per `name`), `password` masking,
+        `reset` button behaviour, `<input type=image>`.
+  - [ ] Real `<select>` (dropdown, option selection, `multiple`) and proper
+        multi-line `<textarea>` editing.
+  - [ ] **`method=POST`** with `application/x-www-form-urlencoded` body
+        (overlaps the CGI POST item under Next up).
+  - [ ] `<isindex>` single-field search prompt.
+- [ ] **Head elements**:
+  - [ ] **`<link rel=stylesheet href>`** — load *external* CSS (today only inline
+        `<style>`); the biggest single feature here.
+  - [ ] **`<base href>`** — resolve relative URLs/links against it.
+  - [ ] `<meta>` (charset/refresh) — currently parsed-as-void and ignored.
+- [ ] **Resource fetching** behind the above: a small loader so `href`/`src`/
+      `<link>` can pull additional files (and, in CGI mode, additional requests).
+
+> Out of scope for 2.0 (arrived later, already partly done here as extras):
+> tables (HTML 3.0+ — we have a basic implementation), most presentational
+> attributes and CSS (1996+), frames (4.0), and scripting.
