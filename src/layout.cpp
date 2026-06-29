@@ -348,6 +348,7 @@ std::unique_ptr<LayoutBox> layout_block(const StyleMap& sm, FontCache& fonts,
 
     if (has_block_children(sm, el)) {
         std::vector<const Node*> inline_run;
+        float prev_margin_bottom = 0;  // for adjacent-sibling margin collapsing
         auto flush_inline = [&]() {
             if (inline_run.empty()) return;
             std::vector<Frag> frags;
@@ -365,6 +366,7 @@ std::unique_ptr<LayoutBox> layout_block(const StyleMap& sm, FontCache& fonts,
                 anon->height = h;
                 cursor += h;
                 box->add(std::move(anon));
+                prev_margin_bottom = 0;  // inline content breaks margin adjacency
             }
             inline_run.clear();
         };
@@ -376,8 +378,12 @@ std::unique_ptr<LayoutBox> layout_block(const StyleMap& sm, FontCache& fonts,
             if (cst.display == DisplayType::NoDisplay) continue;
             if (is_block_level(cst)) {
                 flush_inline();
+                // Adjacent-sibling vertical margin collapsing: the gap between
+                // two blocks is max(prev.bottom, next.top), not their sum.
+                cursor -= std::min(prev_margin_bottom, cst.margin.top);
                 auto child = layout_block(sm, fonts, base_dir, ce, cst, content_x, cursor, content_width);
                 cursor += cst.margin.top + child->height + cst.margin.bottom;
+                prev_margin_bottom = cst.margin.bottom;
                 box->add(std::move(child));
             } else {
                 inline_run.push_back(c.get());  // inline element among blocks
