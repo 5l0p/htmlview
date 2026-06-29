@@ -70,6 +70,7 @@ void parse_response(const std::string& out, CgiResponse& r) {
     std::string header_block = out.substr(0, sep);
     r.body = out.substr(sep + skip);
 
+    long content_length = -1;
     size_t i = 0;
     while (i < header_block.size()) {
         size_t eol = header_block.find('\n', i);
@@ -83,7 +84,13 @@ void parse_response(const std::string& out, CgiResponse& r) {
         if (key == "content-type") r.content_type = val;
         else if (key == "location") { r.location = val; if (r.status == 200) r.status = 302; }
         else if (key == "status") r.status = std::atoi(val.c_str());
+        else if (key == "content-length") content_length = std::atol(val.c_str());
     }
+
+    // Honor Content-Length when present (exact, binary-safe framing); otherwise
+    // the read-to-EOF body already covers it (the script exits per request).
+    if (content_length >= 0 && (size_t)content_length <= r.body.size())
+        r.body.resize((size_t)content_length);
 }
 
 }  // namespace

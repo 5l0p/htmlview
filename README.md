@@ -42,7 +42,11 @@ environment. Its stdout (an optional `Content-Type`/`Status`/`Location` header
 block, then the body) is rendered. Link clicks issue GET requests to the
 program; form submits serialize named fields into the query string. Because each
 request is a fresh process, the backend persists its own state (a file, a db).
-See `test/counter.cgi` for a worked example:
+Responses are dispatched by `Content-Type`, like a real CGI gateway: `text/html`
+renders as a page, other `text/*` as `<pre>`, `image/*` is displayed, and any
+other binary is saved to a temp file with an info page (the body is framed by
+`Content-Length` when the script sends it). See `test/counter.cgi` and
+`test/binary.cgi` for worked examples:
 
 ```sh
 htmlview --cgi-bin "python3 test/counter.cgi" /

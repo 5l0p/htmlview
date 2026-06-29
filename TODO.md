@@ -15,6 +15,8 @@ Roadmap for `htmlview`. Roughly ordered by value for the app-specific use case.
       hitch on large pages.
 
 ## Done
+- [x] CGI binary mode: responses dispatched by Content-Type (html/text/image/
+      other-binary), `Content-Length` framing, binary save+info page.
 - [x] Image resource fetching: `data:` URLs (base64/percent) and CGI-served
       images materialised to local files; `<base href>` for relative resolution.
 - [x] Real `<select>` dropdown (inline overlay, option selection); `<input

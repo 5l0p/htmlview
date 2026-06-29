@@ -207,6 +207,8 @@ Page build_page(std::string src, std::string base_dir, const std::string& title_
 // No-op fetch for self-contained HTML (error pages, etc.).
 const FetchFn kNoFetch = [](const std::string&) { return std::string(); };
 
+std::string html_escape(const std::string& s);  // defined below
+
 // --- image resolution (data: URLs, CGI fetch) ---------------------------
 
 std::string b64_decode(const std::string& in) {
@@ -298,6 +300,37 @@ ResolveImg make_image_resolver(std::string base, std::string program, ImgCache c
     };
 }
 
+// Build a page for a binary CGI response: image/* is displayed; anything else
+// is saved to a temp file and reported on a small info page.
+Page make_binary_page(const std::string& content_type, const std::string& bytes) {
+    std::string ctl = content_type;
+    std::transform(ctl.begin(), ctl.end(), ctl.begin(),
+                   [](unsigned char c) { return (char)std::tolower(c); });
+    std::string tmp = write_temp(bytes, ext_for(content_type));
+
+    if (ctl.rfind("image/", 0) == 0) {
+        std::string html = "<title>image</title>"
+                           "<body style=\"margin:12px; background:#f4f4f4\">"
+                           "<img src=\"" + tmp + "\"></body>";
+        Page pg = build_page(std::move(html), "", "image", kNoFetch);
+        // File-mode resolver: load the absolute temp path directly.
+        pg.resolve_image = make_image_resolver(
+            "", "", std::make_shared<std::map<std::string, std::string>>());
+        return pg;
+    }
+    std::string html =
+        "<title>Binary content</title>"
+        "<style> body { font-family: sans-serif; margin: 28px; }"
+        "  .b { border: 2px solid #335577; background: #eef4ff; padding: 14px 18px; }"
+        "  h1 { color: #335577; font-size: 20px; margin: 0 0 8px 0; }"
+        "  code { background: #f2f2f2; padding: 1px 3px; } </style>"
+        "<body><div class=\"b\"><h1>Binary content</h1>"
+        "<p>Type: <code>" + html_escape(content_type.empty() ? "(none)" : content_type) + "</code></p>"
+        "<p>Size: " + std::to_string(bytes.size()) + " bytes</p>"
+        "<p>Saved to: <code>" + html_escape(tmp) + "</code></p></div></body>";
+    return build_page(std::move(html), "", "Binary content", kNoFetch);
+}
+
 std::string html_escape(const std::string& s) {
     std::string out;
     for (char c : s) {
@@ -368,10 +401,17 @@ Page load_cgi_request(const std::string& program, const std::string& method,
         if (!r.location.empty() && (r.status / 100) == 3) {
             t = r.location; m = "GET"; b.clear(); continue;  // redirect -> GET
         }
-        std::string ct = r.content_type;
-        std::string body = r.body;
-        if (ct.rfind("text/plain", 0) == 0)
-            body = "<pre>" + html_escape(body) + "</pre>";
+        // Dispatch on Content-Type, like a real CGI gateway.
+        std::string ctl = r.content_type;
+        std::transform(ctl.begin(), ctl.end(), ctl.begin(),
+                       [](unsigned char c) { return (char)std::tolower(c); });
+        bool is_html = ctl.empty() || ctl.rfind("text/html", 0) == 0 ||
+                       ctl.rfind("application/xhtml", 0) == 0;
+        bool is_text = ctl.rfind("text/", 0) == 0;
+        if (!is_html && !is_text)
+            return make_binary_page(r.content_type, r.body);
+
+        std::string body = is_html ? r.body : ("<pre>" + html_escape(r.body) + "</pre>");
         // <link> stylesheets are fetched as further GET requests to the program.
         FetchFn fetch = [&program](const std::string& href) -> std::string {
             std::string p = href, query;
