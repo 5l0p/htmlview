@@ -87,13 +87,13 @@ All implemented (see `test/html1x.html`):
 
 Beyond the core model, 2.0's distinctive additions — and our gaps:
 
-- [ ] **Complete the forms model** (we have text/checkbox/button + GET submit):
-  - [ ] `radio` grouping (one selected per `name`), `password` masking,
-        `reset` button behaviour, `<input type=image>`.
-  - [ ] Real `<select>` (dropdown, option selection, `multiple`) and proper
-        multi-line `<textarea>` editing.
-  - [ ] **`method=POST`** with `application/x-www-form-urlencoded` body
-        (overlaps the CGI POST item under Next up).
+- **Forms model** — mostly done:
+  - [x] text / `password` (masked) / checkbox / `radio` (grouped) inputs,
+        submit / `reset` / plain buttons, multi-line `<textarea>`, Tab focus.
+  - [x] **`method=POST`** with `application/x-www-form-urlencoded` body (CGI,
+        on the program's stdin); GET submits via the query string.
+  - [ ] Real `<select>` (dropdown, option selection, `multiple`) — static today.
+  - [ ] `<input type=image>` and `<input type=file>`.
   - [ ] `<isindex>` single-field search prompt.
 - [ ] **Head elements**:
   - [x] **`<link rel=stylesheet href>`** — external CSS (file dir, or CGI
@@ -102,10 +102,11 @@ Beyond the core model, 2.0's distinctive additions — and our gaps:
   - [x] `<meta http-equiv=refresh>` — honoured (with optional `url=`), overrides
         the `--refresh` CLI flag.
   - [ ] `<meta charset>` and other `<meta>` keys.
-  - [ ] **`<isindex>`** single-field search prompt (maps a typed query to a GET
-        `?keywords` request — natural fit for CGI mode).
 - [ ] **Resource fetching** is now in place for `<link>`; extend to `<img src>`
       in CGI mode and to `<base href>`.
+
+(`<isindex>` is listed under the forms gaps above — it maps a typed query to a
+GET `?keywords` request, a natural fit for CGI mode.)
 
 > Out of scope for 2.0 (arrived later, already partly done here as extras):
 > tables (HTML 3.0+ — we have a basic implementation), most presentational
