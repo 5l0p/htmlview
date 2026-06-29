@@ -231,6 +231,26 @@ void gather_fields(const Node* n, const FormState& fs, const Element* clicked,
     for (const auto& c : e->children) gather_fields(c.get(), fs, clicked, out);
 }
 
+// Find the element targeted by a fragment: id == frag, or <a name == frag>.
+const Element* find_anchor(const Node* n, const std::string& frag) {
+    if (!n->is_element()) return nullptr;
+    const auto* e = static_cast<const Element*>(n);
+    if (const std::string* id = e->attr("id"); id && *id == frag) return e;
+    if (e->tag == Tag::A)
+        if (const std::string* nm = e->attr("name"); nm && *nm == frag) return e;
+    for (const auto& c : e->children)
+        if (const Element* r = find_anchor(c.get(), frag)) return r;
+    return nullptr;
+}
+
+// First layout box produced by `target` (to read its document y).
+const LayoutBox* find_box_for(const LayoutBox* box, const Element* target) {
+    if (box->element == target) return box;
+    for (const auto& c : box->children)
+        if (const LayoutBox* r = find_box_for(c.get(), target)) return r;
+    return nullptr;
+}
+
 // Deepest box under (px,py) in document coords that carries a link href.
 const LayoutBox* find_link(const LayoutBox* box, float px, float py) {
     const LayoutBox* found = nullptr;
@@ -310,6 +330,17 @@ int run_window(const std::string& target0, const std::string& cgi_program) {
         float max_scroll = std::max(0.0f, doc_height - height);
         scroll_y = std::clamp(scroll_y, 0.0f, max_scroll);
     };
+    // Scroll so the element named by `frag` is at the top (empty frag -> top).
+    auto scroll_to_fragment = [&](const std::string& frag) {
+        scroll_y = 0;
+        if (!frag.empty() && root) {
+            const Element* el = find_anchor(page.doc.root.get(), frag);
+            if (const LayoutBox* b = el ? find_box_for(root.get(), el) : nullptr)
+                scroll_y = b->y;
+        }
+        clamp_scroll();
+        repaint();
+    };
     // Load `target` into the view (no history change). Returns success.
     auto load_into = [&](const std::string& target) -> bool {
         Page np = load_target(target);
@@ -335,13 +366,26 @@ int run_window(const std::string& target0, const std::string& cgi_program) {
             std::fprintf(stderr, "htmlview: external link not followed: %s\n", href.c_str());
             return;
         }
+        // Split off a #fragment.
+        std::string base = href, frag;
+        if (size_t h = href.find('#'); h != std::string::npos) {
+            base = href.substr(0, h);
+            frag = href.substr(h + 1);
+        }
+        if (base.empty()) {  // same-page fragment: just scroll
+            scroll_to_fragment(frag);
+            return;
+        }
         std::string target;
         if (cgi_mode)
-            target = href;  // a request path (optionally ?query) to the program
+            target = base;  // a request path (optionally ?query) to the program
         else
-            target = (href[0] == '/') ? href : page.doc.base_dir + "/" + href;
+            target = (base[0] == '/') ? base : page.doc.base_dir + "/" + base;
         // load_into always renders something (the page or an error page).
-        if (load_into(target)) push_history(target);
+        if (load_into(target)) {
+            push_history(target);
+            if (!frag.empty()) scroll_to_fragment(frag);
+        }
     };
     // Serialize the form enclosing `control` and issue a GET to its action.
     auto submit_form = [&](const Element* control) {

@@ -24,6 +24,8 @@ enum class Tag {
     B, I, Em, Strong,
     Table, Tr, Td, Th,
     Form, Input, Button, Label, Textarea, Select, Option,
+    Blockquote, Address, Dl, Dt, Dd, Menu, Dir,
+    Code, Samp, Kbd, Var, Cite, Tt, U, Sub, Sup,
 };
 
 // name -> Tag, case-insensitive. Returns Tag::Unknown if not recognised.

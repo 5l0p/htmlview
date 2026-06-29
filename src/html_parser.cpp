@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <cctype>
 #include <cstdlib>
+#include <unordered_map>
 #include <vector>
 
 namespace hv {
@@ -186,6 +187,10 @@ private:
 
         if (tag == Tag::Li && top() == Tag::Li) stack.pop_back();
 
+        // <dt>/<dd> close a previous open <dt>/<dd>.
+        if (tag == Tag::Dt || tag == Tag::Dd)
+            if (top() == Tag::Dt || top() == Tag::Dd) stack.pop_back();
+
         if (tag == Tag::Tr) {
             if (top() == Tag::Td || top() == Tag::Th) stack.pop_back();
             if (top() == Tag::Tr) stack.pop_back();
@@ -201,6 +206,9 @@ private:
                 case Tag::H4: case Tag::H5: case Tag::H6:
                 case Tag::Ul: case Tag::Ol: case Tag::Li:
                 case Tag::Table: case Tag::Tr: case Tag::Td: case Tag::Th:
+                case Tag::Blockquote: case Tag::Address:
+                case Tag::Dl: case Tag::Dt: case Tag::Dd:
+                case Tag::Menu: case Tag::Dir:
                     return true;
                 default: return false;
             }
@@ -257,39 +265,8 @@ private:
         return out;
     }
 
-    static std::string named_entity(const std::string& e) {
-        if (e == "amp") return "&";
-        if (e == "lt") return "<";
-        if (e == "gt") return ">";
-        if (e == "quot") return "\"";
-        if (e == "apos") return "'";
-        if (e == "nbsp") return "\xc2\xa0";  // U+00A0 in UTF-8
-        if (e == "copy") return "\xc2\xa9";
-        if (e == "reg") return "\xc2\xae";
-        if (e == "trade") return "\xe2\x84\xa2";
-        if (e == "deg") return "\xc2\xb0";
-        if (e == "times") return "\xc3\x97";
-        if (e == "divide") return "\xc3\xb7";
-        if (e == "mdash") return "\xe2\x80\x94";
-        if (e == "ndash") return "\xe2\x80\x93";
-        if (e == "hellip") return "\xe2\x80\xa6";
-        if (e == "laquo") return "\xc2\xab";
-        if (e == "raquo") return "\xc2\xbb";
-        if (e == "larr") return "\xe2\x86\x90";
-        if (e == "uarr") return "\xe2\x86\x91";
-        if (e == "rarr") return "\xe2\x86\x92";
-        if (e == "darr") return "\xe2\x86\x93";
-        if (e == "harr") return "\xe2\x86\x94";
-        return "";
-    }
-
-    // Encode a Unicode code point as UTF-8.
-    static std::string numeric_entity(const std::string& e) {
-        long cp = 0;
-        if (e.size() > 1 && (e[1] == 'x' || e[1] == 'X'))
-            cp = std::strtol(e.c_str() + 2, nullptr, 16);
-        else
-            cp = std::strtol(e.c_str() + 1, nullptr, 10);
+    // Encode a Unicode code point as UTF-8 (1–4 bytes).
+    static std::string utf8_encode(long cp) {
         std::string out;
         if (cp < 0x80) out += (char)cp;
         else if (cp < 0x800) {
@@ -306,6 +283,58 @@ private:
             out += (char)(0x80 | (cp & 0x3F));
         }
         return out;
+    }
+
+    // Named character references -> UTF-8. Covers the markup specials, the full
+    // ISO 8859-1 (Latin-1) set, and common general punctuation.
+    static std::string named_entity(const std::string& e) {
+        static const std::unordered_map<std::string, long> cp = {
+            {"quot", 34}, {"amp", 38}, {"apos", 39}, {"lt", 60}, {"gt", 62},
+            // Latin-1 symbols (U+00A0–U+00BF)
+            {"nbsp", 160}, {"iexcl", 161}, {"cent", 162}, {"pound", 163},
+            {"curren", 164}, {"yen", 165}, {"brvbar", 166}, {"sect", 167},
+            {"uml", 168}, {"copy", 169}, {"ordf", 170}, {"laquo", 171},
+            {"not", 172}, {"shy", 173}, {"reg", 174}, {"macr", 175},
+            {"deg", 176}, {"plusmn", 177}, {"sup2", 178}, {"sup3", 179},
+            {"acute", 180}, {"micro", 181}, {"para", 182}, {"middot", 183},
+            {"cedil", 184}, {"sup1", 185}, {"ordm", 186}, {"raquo", 187},
+            {"frac14", 188}, {"frac12", 189}, {"frac34", 190}, {"iquest", 191},
+            // Latin-1 letters (U+00C0–U+00FF)
+            {"Agrave", 192}, {"Aacute", 193}, {"Acirc", 194}, {"Atilde", 195},
+            {"Auml", 196}, {"Aring", 197}, {"AElig", 198}, {"Ccedil", 199},
+            {"Egrave", 200}, {"Eacute", 201}, {"Ecirc", 202}, {"Euml", 203},
+            {"Igrave", 204}, {"Iacute", 205}, {"Icirc", 206}, {"Iuml", 207},
+            {"ETH", 208}, {"Ntilde", 209}, {"Ograve", 210}, {"Oacute", 211},
+            {"Ocirc", 212}, {"Otilde", 213}, {"Ouml", 214}, {"times", 215},
+            {"Oslash", 216}, {"Ugrave", 217}, {"Uacute", 218}, {"Ucirc", 219},
+            {"Uuml", 220}, {"Yacute", 221}, {"THORN", 222}, {"szlig", 223},
+            {"agrave", 224}, {"aacute", 225}, {"acirc", 226}, {"atilde", 227},
+            {"auml", 228}, {"aring", 229}, {"aelig", 230}, {"ccedil", 231},
+            {"egrave", 232}, {"eacute", 233}, {"ecirc", 234}, {"euml", 235},
+            {"igrave", 236}, {"iacute", 237}, {"icirc", 238}, {"iuml", 239},
+            {"eth", 240}, {"ntilde", 241}, {"ograve", 242}, {"oacute", 243},
+            {"ocirc", 244}, {"otilde", 245}, {"ouml", 246}, {"divide", 247},
+            {"oslash", 248}, {"ugrave", 249}, {"uacute", 250}, {"ucirc", 251},
+            {"uuml", 252}, {"yacute", 253}, {"thorn", 254}, {"yuml", 255},
+            // Common general punctuation & symbols
+            {"ndash", 8211}, {"mdash", 8212}, {"lsquo", 8216}, {"rsquo", 8217},
+            {"sbquo", 8218}, {"ldquo", 8220}, {"rdquo", 8221}, {"bdquo", 8222},
+            {"dagger", 8224}, {"Dagger", 8225}, {"bull", 8226}, {"hellip", 8230},
+            {"permil", 8240}, {"prime", 8242}, {"Prime", 8243}, {"lsaquo", 8249},
+            {"rsaquo", 8250}, {"euro", 8364}, {"trade", 8482},
+            {"larr", 8592}, {"uarr", 8593}, {"rarr", 8594}, {"darr", 8595},
+            {"harr", 8596},
+        };
+        auto it = cp.find(e);
+        return it == cp.end() ? std::string() : utf8_encode(it->second);
+    }
+
+    // Numeric character reference (&#169; or &#xA9;) -> UTF-8.
+    static std::string numeric_entity(const std::string& e) {
+        long cp = (e.size() > 1 && (e[1] == 'x' || e[1] == 'X'))
+                      ? std::strtol(e.c_str() + 2, nullptr, 16)
+                      : std::strtol(e.c_str() + 1, nullptr, 10);
+        return utf8_encode(cp);
     }
 };
 

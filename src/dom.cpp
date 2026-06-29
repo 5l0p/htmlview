@@ -28,6 +28,12 @@ Tag tag_from_name(const std::string& name) {
         {"form", Tag::Form}, {"input", Tag::Input}, {"button", Tag::Button},
         {"label", Tag::Label}, {"textarea", Tag::Textarea},
         {"select", Tag::Select}, {"option", Tag::Option},
+        {"blockquote", Tag::Blockquote}, {"address", Tag::Address},
+        {"dl", Tag::Dl}, {"dt", Tag::Dt}, {"dd", Tag::Dd},
+        {"menu", Tag::Menu}, {"dir", Tag::Dir},
+        {"code", Tag::Code}, {"samp", Tag::Samp}, {"kbd", Tag::Kbd},
+        {"var", Tag::Var}, {"cite", Tag::Cite}, {"tt", Tag::Tt},
+        {"u", Tag::U}, {"sub", Tag::Sub}, {"sup", Tag::Sup},
     };
     auto it = m.find(to_lower(name));
     return it == m.end() ? Tag::Unknown : it->second;
@@ -52,6 +58,13 @@ const char* tag_name(Tag t) {
         case Tag::Button: return "button"; case Tag::Label: return "label";
         case Tag::Textarea: return "textarea"; case Tag::Select: return "select";
         case Tag::Option: return "option";
+        case Tag::Blockquote: return "blockquote"; case Tag::Address: return "address";
+        case Tag::Dl: return "dl"; case Tag::Dt: return "dt"; case Tag::Dd: return "dd";
+        case Tag::Menu: return "menu"; case Tag::Dir: return "dir";
+        case Tag::Code: return "code"; case Tag::Samp: return "samp";
+        case Tag::Kbd: return "kbd"; case Tag::Var: return "var";
+        case Tag::Cite: return "cite"; case Tag::Tt: return "tt";
+        case Tag::U: return "u"; case Tag::Sub: return "sub"; case Tag::Sup: return "sup";
         case Tag::Unknown: default: return "?";
     }
 }

@@ -67,9 +67,14 @@ CSS  ─▶ css ─▶ rules ───────┴▶ style (cascade) ─▶ 
 ## Supported subset
 
 - **Elements:** `html head body title style`, `h1`–`h6`, `p div span pre br hr`,
-  `a img`, `ul ol li`, `b i em strong`, `table tr td th`, and form controls
+  `a img`, `ul ol li`, `b i em strong`, `blockquote address dl dt dd menu dir`,
+  `code samp kbd var cite tt u sub sup`, `table tr td th`, and form controls
   `form input button textarea select` (text inputs, checkboxes, buttons are
   interactive; select is a static box; radios render as checkboxes).
+- **Navigation:** local links, `#fragment` anchors (`id` / `<a name>`), and
+  back/forward history.
+- **Entities:** the full ISO 8859-1 (Latin-1) named set, common punctuation, and
+  numeric `&#nnn;` / `&#xhh;` references. `<img alt>` shown when an image fails.
 - **CSS properties:** `display`, `color`, `background-color`, `font-family/size/weight/style`,
   `text-align`, `text-decoration`, `list-style-type`, `margin*`, `padding*`,
   `border` + per-side `border-top/right/bottom/left` (solid), `width`, `height`.

@@ -274,6 +274,21 @@ ComputedStyle ua_defaults(const Element& e, const ComputedStyle& parent) {
             s.display = DisplayType::TableCell; s.padding = {2, 2, 2, 2};
             s.font_weight = FontWeight::Bold; s.text_align = TextAlign::Center; break;
         case Tag::Title: case Tag::Style: s.display = DisplayType::NoDisplay; break;
+        // Early-core block elements.
+        case Tag::Blockquote: block(); s.margin = {16, 40, 16, 40}; break;
+        case Tag::Address: block(); s.font_style = FontStyle::Italic; s.margin = {0, 0, 14, 0}; break;
+        case Tag::Dl: block(); s.margin = {14, 0, 14, 0}; break;
+        case Tag::Dt: block(); break;
+        case Tag::Dd: block(); s.margin.left = 40; break;
+        case Tag::Menu: case Tag::Dir:
+            block(); s.margin = {12, 0, 12, 0}; s.padding.left = 40;
+            s.list_style = ListStyle::Disc; break;
+        // Phrase / typographic inlines.
+        case Tag::Code: case Tag::Samp: case Tag::Kbd: case Tag::Tt:
+            s.font_family = "monospace"; break;
+        case Tag::Var: case Tag::Cite: s.font_style = FontStyle::Italic; break;
+        case Tag::U: s.text_decoration = TextDecoration::Underline; break;
+        case Tag::Sub: case Tag::Sup: s.font_size *= 0.83f; break;  // shift in layout
         case Tag::Form: block(); s.margin = {0, 0, 8, 0}; break;
         case Tag::Option: s.display = DisplayType::NoDisplay; break;  // not rendered inline
         // Form controls render as inline replaced widgets (see layout/paint).

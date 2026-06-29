@@ -66,25 +66,20 @@ Roadmap for `htmlview`. Roughly ordered by value for the app-specific use case.
 > 1996), so "compliance" here means the elements + their default presentation;
 > our CSS engine is a bonus layer on top.
 
-## Toward the early-core HTML document model ("HTML 1.x")
+## Toward the early-core HTML document model ("HTML 1.x") — DONE
 
-We already cover most of it: `html/head/body/title`, `h1`–`h6`, `p`, `pre`,
-`br`, `hr`, `a href`, `img`, `ul/ol/li`, `b/i/em/strong`. Remaining gaps:
+All implemented (see `test/html1x.html`):
 
-- [ ] **Block elements**: `<blockquote>` (indented margins), `<address>`
-      (italic block), `<dl>/<dt>/<dd>` definition lists (dd indented),
-      `<menu>`/`<dir>` (map to list layout).
-- [ ] **Phrase/typographic inlines**: `<code> <samp> <kbd> <var> <cite> <tt>`
-      (monospace / italic per element) and `<u>` (underline). Pure UA-default
-      additions — no new layout machinery.
-- [ ] **`<sub>` / `<sup>`** — needs inline vertical-shift + smaller font
-      (overlaps the `vertical-align` item under Layout fidelity).
-- [ ] **Named anchors + fragment navigation**: `<a name="x">` / `id="x"` targets
-      and `href="#x"` (and `file#x`) scrolling to the anchor. Reuses the existing
-      box tree + scroll machinery (find the target box's y, set scroll).
-- [ ] **`alt` text** rendered when an `<img>` is missing/unloadable.
-- [ ] **Fuller ISO Latin-1 entity coverage** (we ship a curated subset; see the
-      Parsing item above).
+- [x] **Block elements**: `<blockquote>` (indented), `<address>` (italic),
+      `<dl>/<dt>/<dd>`, `<menu>`/`<dir>`.
+- [x] **Phrase/typographic inlines**: `<code> <samp> <kbd> <var> <cite> <tt>`
+      and `<u>`.
+- [x] **`<sub>` / `<sup>`** — smaller font + inline baseline shift.
+- [x] **Named anchors + fragment navigation**: `id="x"` / `<a name="x">` targets,
+      `href="#x"` and `file#x` scroll to the anchor.
+- [x] **`alt` text** rendered when an `<img>` is missing/unloadable.
+- [x] **Full ISO 8859-1 entity set** + common general punctuation (shared UTF-8
+      encoder; numeric `&#…;` too).
 
 ## Toward HTML 2.0 (RFC 1866) features
 
