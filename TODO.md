@@ -3,9 +3,10 @@
 Roadmap for `htmlview`. Roughly ordered by value for the app-specific use case.
 
 ## Next up
-- [ ] **Layout-fidelity batch**: `border-collapse` + auto column sizing for
-      tables, `margin: auto` / `%` widths, `line-height`, inline `vertical-align`
-      (all detailed under *Layout fidelity* below).
+- [ ] **`line-height` + inline `vertical-align`** (the next layout-fidelity step;
+      see *Layout fidelity*).
+- [ ] **Table auto column sizing + `border-collapse`** (still even columns).
+- [ ] **`%` margins/padding** and `border-radius` (see *Layout fidelity* / *CSS*).
 - [ ] **CGI: persistent-coprocess option** for in-memory state (re-spawn POST
       already works).
 - [ ] **Temp-file cleanup** for fetched/`data:` images (cached per page but
@@ -15,6 +16,9 @@ Roadmap for `htmlview`. Roughly ordered by value for the app-specific use case.
       hitch on large pages.
 
 ## Done
+- [x] CSS: `%` widths (and `%`/px heights), `margin: auto` centering,
+      `background-image` (tiled), per-side border styles (solid/dashed/dotted/
+      double).
 - [x] CGI binary mode: responses dispatched by Content-Type (html/text/image/
       other-binary), `Content-Length` framing, binary save+info page.
 - [x] Image resource fetching: `data:` URLs (base64/percent) and CGI-served

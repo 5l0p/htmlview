@@ -1,9 +1,15 @@
 # htmlview
 
 A small, **application-specific** HTML/CSS renderer built directly on X11, Xft,
-XRender and Imlib2 — no browser engine, no web stack. It targets a controlled
-subset of HTML 3.2 + a pragmatic slice of CSS, for displaying app-authored
-markup (which must also render correctly in a real browser).
+XRender and Imlib2 — no browser engine, no web stack. It renders a practical
+subset of HTML (roughly the early-core + HTML 2.0 element set, plus tables and a
+CSS1-flavoured style engine) for app-authored markup that also renders correctly
+in a real browser.
+
+Beyond a static viewer, it doubles as a tiny **application runtime**: point it at
+a local **CGI** program (`--cgi-bin`) and it becomes a thin client that renders
+the program's HTML, follows links, submits forms (GET/POST), and displays images
+the backend serves — a lightweight, dependency-free alternative to a webview.
 
 ## Build
 
@@ -67,13 +73,14 @@ CSS  ─▶ css ─▶ rules ───────┴▶ style (cascade) ─▶ 
 | File | Responsibility |
 |------|----------------|
 | `dom.{h,cpp}`         | Element/Text node tree, tag enum |
-| `html_parser.{h,cpp}` | Tokeniser + tree builder (void elements, implicit close, raw-text `<style>`/`<title>`, entities) |
-| `css.{h,cpp}`         | Selector + declaration parser (type/class/id/descendant/grouping, specificity) |
-| `style.{h,cpp}`       | UA defaults + cascade + inheritance → `ComputedStyle`; colour/length parsing |
-| `font.{h,cpp}`        | Xft font cache + text measurement |
-| `layout.{h,cpp}`      | Block (BFC) + inline (IFC, word wrap) + list markers + images + tables |
-| `paint.{h,cpp}`       | XRender fills (bg/borders), Xft text, drawn bullets, Imlib2 images |
-| `window.cpp`          | Live X11 window (scroll/resize) and headless PNG export |
+| `html_parser.{h,cpp}` | Tokeniser + tree builder (void elements, implicit close, raw-text `<style>`/`<title>`, full Latin-1 + numeric entities) |
+| `css.{h,cpp}`         | Selector + declaration parser (type/class/id/descendant/grouping, `:hover`, specificity) |
+| `style.{h,cpp}`       | UA defaults + cascade + inheritance → `ComputedStyle`; colour/length (`Length`: px/%/auto) parsing; `<link>` CSS gathering |
+| `font.{h,cpp}`        | Xft font cache (fontconfig family fallback) + text measurement |
+| `layout.{h,cpp}`      | Block flow (box model, % widths, `margin:auto`, margin collapsing) + inline flow (word wrap, sub/sup) + list markers + images + form widgets + tables (colspan/rowspan) |
+| `paint.{h,cpp}`       | XRender fills, styled borders, tiled backgrounds, Xft text, drawn bullets, form controls + dropdowns, Imlib2 images |
+| `cgi.{h,cpp}`         | Classic-CGI request runner (fork/exec, env, header parse, `Content-Length`) |
+| `window.cpp`          | Live X11 window (scroll/resize/nav/forms), file & CGI page loaders, headless PNG export |
 
 ## Supported subset
 
@@ -81,9 +88,9 @@ CSS  ─▶ css ─▶ rules ───────┴▶ style (cascade) ─▶ 
   `a img`, `ul ol li`, `b i em strong`, `blockquote address dl dt dd menu dir`,
   `code samp kbd var cite tt u sub sup`, `table tr td th`, and form controls
   `form input button textarea select` — text fields (incl. `password` masking),
-  checkboxes, radio groups, submit/reset/plain buttons, and multi-line
-  `textarea` are interactive; forms submit via GET (query string) or POST (CGI,
-  body on stdin); `select` is a static box. `Tab`/`Shift+Tab` cycle text fields.
+  checkboxes, radio groups, submit/reset/plain buttons, `<select>` (click for a
+  dropdown), and multi-line `textarea` are all interactive; forms submit via GET
+  (query string) or POST (CGI, body on stdin). `Tab`/`Shift+Tab` cycle fields.
 - **Navigation:** local links, `#fragment` anchors (`id` / `<a name>`), and
   back/forward history.
 - **Entities:** the full ISO 8859-1 (Latin-1) named set, common punctuation, and
@@ -97,13 +104,22 @@ CSS  ─▶ css ─▶ rules ───────┴▶ style (cascade) ─▶ 
   double` styles, `width`/`height` in px **or `%`**.
 - Tolerates the legacy `<style><!-- ... --></style>` SGML-comment wrapper.
 - **CSS selectors:** type, `.class`, `#id`, descendant (`div p`), grouping (`h1, h3`),
-  plus inline `style=""`. Specificity + source-order cascade with inheritance.
-- **Colours:** `#rgb`, `#rrggbb`, `rgb()`, common named colours.
-- **Lengths:** `px`, `em`, `pt`, unitless.
+  the `:hover` pseudo-class, plus inline `style=""`. Specificity + source-order
+  cascade with inheritance. (`:visited` is parsed but inert — no history.)
+- **Colours:** `#rgb`, `#rrggbb`, `rgb()`, `transparent`, common named colours.
+- **Lengths:** `px`, `em`, `pt`, `%`, `auto`, unitless.
+- **Head elements:** `<base href>`, `<link rel=stylesheet>` (external CSS),
+  `<meta http-equiv=refresh>`. Adjacent-sibling vertical margins collapse.
 
-## Known limitations (by design, for v1)
+## Known limitations
 
-- No vertical margin collapsing; no floats / positioning / z-index.
-- Tables: even column widths only — no colspan/rowspan, no auto min/max sizing.
-- No forms/interactivity yet (hit-testing + link `href` plumbing is in place for it).
-- Latin/Western text only (Xft; no HarfBuzz shaping or bidi).
+- No floats / positioning (`relative`/`absolute`) / z-index — normal flow only.
+- Tables have colspan/rowspan but **even column widths** (no auto min/max sizing,
+  no `border-collapse`).
+- No `line-height`, `vertical-align`, `border-radius`, or `%` margins/padding yet.
+- `<select multiple>` and `<input type=file>` not supported; `type=image` is a
+  plain submit.
+- Latin/Western text only (Xft; no HarfBuzz shaping or bidi); no scripting.
+- Fetched/`data:` images write temp files that are not cleaned up until exit.
+
+See `TODO.md` for the roadmap (including the HTML 1.x / 2.0 compliance status).
