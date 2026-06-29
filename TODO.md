@@ -29,8 +29,8 @@ Roadmap for `htmlview`. Roughly ordered by value for the app-specific use case.
 - [x] Body background propagation to the canvas.
 
 ## Layout fidelity
-- [ ] Table `colspan` / `rowspan` and auto min/max column sizing (currently even
-      columns only).
+- [x] Table `colspan` / `rowspan` (grid-occupancy model). Still even columns —
+      auto min/max column sizing and `border-collapse` remain.
 - [ ] `width` / `margin: auto` horizontal centering of block boxes.
 - [ ] Percentage lengths (`width: 50%`, etc.).
 - [ ] `line-height` property (today derived purely from font metrics).

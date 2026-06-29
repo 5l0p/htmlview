@@ -544,8 +544,16 @@ std::unique_ptr<LayoutBox> layout_block(const StyleMap& sm, FontCache& fonts,
     return box;
 }
 
-// Simple table layout: even column widths, row height = tallest cell, cells
-// stretched to the row height. No colspan/rowspan, no auto min/max sizing.
+// Shift a box and all its descendants vertically (cells are laid out at y=0
+// then translated to their final row position once row heights are known).
+void translate_box(LayoutBox* b, float dy) {
+    b->y += dy;
+    for (auto& c : b->children) translate_box(c.get(), dy);
+}
+
+// Table layout with colspan/rowspan via a grid-occupancy model. Columns are
+// even width; row heights are the tallest cell (rowspanning cells distribute
+// any overflow into their last spanned row). No auto min/max column sizing.
 std::unique_ptr<LayoutBox> layout_table(const StyleMap& sm, FontCache& fonts,
                                         const std::string& base_dir,
                                         const Element* el, const ComputedStyle& st,
@@ -568,57 +576,92 @@ std::unique_ptr<LayoutBox> layout_table(const StyleMap& sm, FontCache& fonts,
     float content_x = table->x + bl + pl;
     float content_top = table->y + st.border.top.width + st.padding.top;
 
-    // Gather rows and the max column count.
     std::vector<const Element*> rows;
     for (const auto& c : el->children) {
         if (!c->is_element()) continue;
         const auto* e = static_cast<const Element*>(c.get());
         if (style_of(sm, e).display == DisplayType::TableRow) rows.push_back(e);
     }
+    int nrows = (int)rows.size();
+    if (nrows == 0) { table->height = 0; return table; }
+
+    auto attr_int = [](const Element* e, const char* k, int def) {
+        const std::string* v = e->attr(k);
+        int n = v ? std::atoi(v->c_str()) : def;
+        return n < 1 ? def : n;
+    };
+
+    // Assign each cell a grid slot, skipping cells covered by a rowspan above.
+    struct Cell { const Element* el; const ComputedStyle* st; int row, col, cspan, rspan;
+                  std::unique_ptr<LayoutBox> box; };
+    std::vector<Cell> cells;
+    std::vector<std::vector<char>> occ(nrows);
+    auto occ_at = [&](int r, int c) -> char& {
+        if ((int)occ[r].size() <= c) occ[r].resize(c + 1, 0);
+        return occ[r][c];
+    };
     int ncols = 1;
-    for (const Element* row : rows) {
-        int n = 0;
-        for (const auto& c : row->children)
-            if (c->is_element() &&
-                style_of(sm, static_cast<const Element*>(c.get())).display == DisplayType::TableCell)
-                ++n;
-        ncols = std::max(ncols, n);
-    }
-    float colw = content_width / ncols;
-
-    float rowtop = content_top;
-    for (const Element* row : rows) {
-        const ComputedStyle& rst = style_of(sm, row);
-        auto rowbox = std::make_unique<LayoutBox>();
-        rowbox->kind = LayoutBox::Kind::Block;
-        rowbox->element = row;
-        rowbox->style = &rst;
-        rowbox->x = content_x;
-        rowbox->y = rowtop;
-        rowbox->width = content_width;
-
-        std::vector<LayoutBox*> cells;
-        float rowh = 0;
+    for (int r = 0; r < nrows; ++r) {
         int col = 0;
-        for (const auto& c : row->children) {
+        for (const auto& c : rows[r]->children) {
             if (!c->is_element()) continue;
             const auto* ce = static_cast<const Element*>(c.get());
             const ComputedStyle& cst = style_of(sm, ce);
             if (cst.display != DisplayType::TableCell) continue;
-            float cx = content_x + col * colw;
-            auto cell = layout_block(sm, fonts, base_dir, ce, cst, cx, rowtop, colw);
-            rowh = std::max(rowh, cell->height);
-            cells.push_back(cell.get());
-            rowbox->add(std::move(cell));
-            ++col;
+            while (occ_at(r, col)) ++col;
+            int cspan = attr_int(ce, "colspan", 1);
+            int rspan = std::min(attr_int(ce, "rowspan", 1), nrows - r);
+            for (int dr = 0; dr < rspan; ++dr)
+                for (int dc = 0; dc < cspan; ++dc) occ_at(r + dr, col + dc) = 1;
+            cells.push_back({ce, &cst, r, col, cspan, rspan, nullptr});
+            col += cspan;
         }
-        for (LayoutBox* cell : cells) cell->height = rowh;  // stretch to row height
-        rowbox->height = rowh;
-        rowtop += rowh;
-        table->add(std::move(rowbox));
+        ncols = std::max(ncols, std::max(col, (int)occ[r].size()));
+    }
+    float colw = content_width / ncols;
+
+    // Pass 1: lay out each cell at y=0 to learn its natural height.
+    for (Cell& ci : cells)
+        ci.box = layout_block(sm, fonts, base_dir, ci.el, *ci.st,
+                              content_x + ci.col * colw, 0, ci.cspan * colw);
+
+    // Row heights: single-row cells set the base; rowspanning cells push any
+    // overflow into their last spanned row.
+    std::vector<float> rowh(nrows, 0);
+    for (const Cell& ci : cells)
+        if (ci.rspan == 1) rowh[ci.row] = std::max(rowh[ci.row], ci.box->height);
+    for (const Cell& ci : cells)
+        if (ci.rspan > 1) {
+            float have = 0;
+            for (int dr = 0; dr < ci.rspan; ++dr) have += rowh[ci.row + dr];
+            if (ci.box->height > have) rowh[ci.row + ci.rspan - 1] += ci.box->height - have;
+        }
+    std::vector<float> row_y(nrows + 1);
+    row_y[0] = content_top;
+    for (int r = 0; r < nrows; ++r) row_y[r + 1] = row_y[r] + rowh[r];
+
+    // Build row boxes, then move each cell into its starting row at final y/height.
+    std::vector<LayoutBox*> rowbox(nrows);
+    for (int r = 0; r < nrows; ++r) {
+        auto rb = std::make_unique<LayoutBox>();
+        rb->kind = LayoutBox::Kind::Block;
+        rb->element = rows[r];
+        rb->style = &style_of(sm, rows[r]);
+        rb->x = content_x;
+        rb->y = row_y[r];
+        rb->width = content_width;
+        rb->height = rowh[r];
+        rowbox[r] = table->add(std::move(rb));
+    }
+    for (Cell& ci : cells) {
+        translate_box(ci.box.get(), row_y[ci.row]);  // from y=0 to final row top
+        float h = 0;
+        for (int dr = 0; dr < ci.rspan; ++dr) h += rowh[ci.row + dr];
+        ci.box->height = h;  // stretch across spanned rows
+        rowbox[ci.row]->add(std::move(ci.box));
     }
 
-    float content_height = (st.height != kAuto) ? st.height : (rowtop - content_top);
+    float content_height = (st.height != kAuto) ? st.height : (row_y[nrows] - content_top);
     table->height = st.border.top.width + st.padding.top + content_height
                     + st.padding.bottom + st.border.bottom.width;
     return table;

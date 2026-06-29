@@ -1,0 +1,30 @@
+<!DOCTYPE html>
+<html><head><title>table spans</title>
+<style>
+  body { font-family: sans-serif; margin: 16px; }
+  table { border: 2px solid #335; border-collapse: collapse; }
+  td, th { border: 1px solid #88a; padding: 6px 10px; }
+  th { background: #dde; }
+  .hl { background: #ffe9a8; }
+</style></head>
+<body>
+  <h3>colspan / rowspan</h3>
+  <table>
+    <tr>
+      <th colspan="3">Quarterly results (colspan=3)</th>
+    </tr>
+    <tr>
+      <td rowspan="2" class="hl">North<br>(rowspan=2)</td>
+      <td>Q1</td>
+      <td>100</td>
+    </tr>
+    <tr>
+      <td>Q2</td>
+      <td>140</td>
+    </tr>
+    <tr>
+      <td>South</td>
+      <td colspan="2">merged Q1+Q2 (colspan=2)</td>
+    </tr>
+  </table>
+</body></html>
