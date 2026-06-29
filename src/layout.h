@@ -1,0 +1,58 @@
+// Layout engine: turns the styled DOM into a positioned box tree.
+//
+// Two formatting contexts:
+//   - Block: child block boxes stack vertically (the box model: margin /
+//     border / padding / content).
+//   - Inline: text + inline elements flow into line boxes with word wrapping,
+//     whitespace collapsing (preserved for <pre>) and horizontal alignment.
+//
+// All geometry is in absolute document pixels. A box's (x,y,width,height) is
+// its BORDER box; margins are consumed by the parent during stacking.
+#pragma once
+
+#include <memory>
+#include <string>
+#include <vector>
+
+#include "font.h"
+#include "style.h"
+
+namespace hv {
+
+struct LayoutBox {
+    enum class Kind { Block, Anonymous, TextRun, Image, Marker, Table, TableRow, TableCell };
+    Kind kind = Kind::Block;
+
+    ListStyle marker = ListStyle::NoMarker;  // for Kind::Marker shape bullets
+
+    const Element* element = nullptr;     // source element (may be null for anon/text)
+    const ComputedStyle* style = nullptr; // style to paint with
+
+    float x = 0, y = 0, width = 0, height = 0;  // border box, document coords
+
+    // TextRun payload.
+    std::string text;
+    XftFont* font = nullptr;
+    RGBA color{0, 0, 0, 255};
+    TextDecoration decoration = TextDecoration::NoDecoration;
+
+    // Image payload.
+    std::string img_src;
+
+    // Link target for hit-testing (propagated from enclosing <a>).
+    std::string href;
+
+    std::vector<std::unique_ptr<LayoutBox>> children;
+
+    LayoutBox* add(std::unique_ptr<LayoutBox> c) {
+        children.push_back(std::move(c));
+        return children.back().get();
+    }
+};
+
+// Build + position the box tree for the document body at the given viewport
+// width. Returns the root box; total document height is root->height.
+std::unique_ptr<LayoutBox> layout_document(const Document& doc, const StyleMap& sm,
+                                           FontCache& fonts, float viewport_width);
+
+}  // namespace hv
