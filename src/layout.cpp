@@ -95,11 +95,14 @@ bool widget_frag(const Element* e, const ComputedStyle& st, FontCache& fonts, Fr
             f.img_w = f.img_h = 13;
             return true;
         }
-        if (type == "button" || type == "submit" || type == "reset") {
+        if (type == "button" || type == "submit" || type == "reset" || type == "image") {
             f.widget = WidgetKind::Button;
             std::string label = attr("value");
+            if (label.empty() && type == "image") label = attr("alt");
             if (label.empty())
-                label = type == "submit" ? "Submit" : type == "reset" ? "Reset" : "Button";
+                label = type == "submit" || type == "image" ? "Submit"
+                        : type == "reset"                    ? "Reset"
+                                                             : "Button";
             f.text = label;
             f.img_w = (float)fonts.measure(font, label) + 16;
             f.img_h = line_h + 8;
@@ -131,15 +134,11 @@ bool widget_frag(const Element* e, const ComputedStyle& st, FontCache& fonts, Fr
         return true;
     }
     if (e->tag == Tag::Select) {
-        f.widget = WidgetKind::Select;  // static box w/ drawn arrow (no dropdown yet)
-        std::string label;
-        for (const auto& c : e->children)
-            if (c->is_element() && static_cast<const Element*>(c.get())->tag == Tag::Option) {
-                label = trimmed(text_content(c.get()));
-                break;
-            }
-        f.text = label;
-        f.img_w = (float)fonts.measure(font, label) + 28;  // room for the arrow
+        f.widget = WidgetKind::Select;  // box + drawn arrow; painter shows selection
+        float widest = 0;
+        for (const SelectOption& o : select_options(e))
+            widest = std::max(widest, (float)fonts.measure(font, o.label));
+        f.img_w = widest + 28;  // room for the arrow
         f.img_h = line_h + 8;
         return true;
     }
@@ -643,6 +642,25 @@ std::unique_ptr<LayoutBox> layout_document(const Document& doc, const StyleMap& 
         return s;
     }();
     return layout_block(sm, fonts, doc.base_dir, doc.root.get(), kRootBlock, 0, 0, viewport_width);
+}
+
+std::vector<SelectOption> select_options(const Element* select) {
+    std::vector<SelectOption> out;
+    for (const auto& c : select->children) {
+        if (!c->is_element()) continue;
+        const auto* o = static_cast<const Element*>(c.get());
+        if (o->tag != Tag::Option) continue;
+        std::string label;
+        for (const auto& t : o->children)
+            if (t->is_text()) label += static_cast<const Text*>(t.get())->data;
+        // trim
+        size_t a = label.find_first_not_of(" \t\r\n");
+        size_t b = label.find_last_not_of(" \t\r\n");
+        label = (a == std::string::npos) ? "" : label.substr(a, b - a + 1);
+        const std::string* v = o->attr("value");
+        out.push_back({label, v ? *v : label});
+    }
+    return out;
 }
 
 }  // namespace hv

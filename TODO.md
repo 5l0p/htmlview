@@ -94,7 +94,8 @@ Beyond the core model, 2.0's distinctive additions — and our gaps:
         on the program's stdin); GET submits via the query string.
   - [ ] Real `<select>` (dropdown, option selection, `multiple`) — static today.
   - [ ] `<input type=image>` and `<input type=file>`.
-  - [ ] `<isindex>` single-field search prompt.
+  - [~] `<isindex>` single-field search prompt — **won't do** (obsolete; a
+        one-field `<form>` covers the same need).
 - [ ] **Head elements**:
   - [x] **`<link rel=stylesheet href>`** — external CSS (file dir, or CGI
         requests); honoured by the window and the render/dump paths.
@@ -105,8 +106,6 @@ Beyond the core model, 2.0's distinctive additions — and our gaps:
 - [ ] **Resource fetching** is now in place for `<link>`; extend to `<img src>`
       in CGI mode and to `<base href>`.
 
-(`<isindex>` is listed under the forms gaps above — it maps a typed query to a
-GET `?keywords` request, a natural fit for CGI mode.)
 
 > Out of scope for 2.0 (arrived later, already partly done here as extras):
 > tables (HTML 3.0+ — we have a basic implementation), most presentational

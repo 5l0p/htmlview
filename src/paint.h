@@ -31,6 +31,10 @@ public:
     void paint(const LayoutBox* root, int width, int height,
                float scroll_x = 0, float scroll_y = 0, const FormView& form = {});
 
+    // Draw an open <select>'s option list below `sel` (document coords shifted
+    // by oy, e.g. -scroll_y). Rows are sel->height tall; `selected` highlighted.
+    void draw_dropdown(const LayoutBox* sel, int selected, float oy);
+
 private:
     void fill_rect(float x, float y, float w, float h, const RGBA& c);
     void stroke_rect(float x, float y, float w, float h, const RGBA& c);

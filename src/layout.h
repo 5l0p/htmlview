@@ -26,7 +26,8 @@ enum class WidgetKind { NoWidget, TextInput, Checkbox, Radio, Button, Select };
 
 struct WidgetState {
     std::string text;       // text-input contents
-    bool checked = false;   // checkbox state
+    bool checked = false;   // checkbox / radio state
+    int option = 0;         // selected <option> index for <select>
 };
 using FormState = std::unordered_map<const Element*, WidgetState>;
 
@@ -67,5 +68,12 @@ struct LayoutBox {
 // width. Returns the root box; total document height is root->height.
 std::unique_ptr<LayoutBox> layout_document(const Document& doc, const StyleMap& sm,
                                            FontCache& fonts, float viewport_width);
+
+struct SelectOption {
+    std::string label;  // visible text
+    std::string value;  // submitted value (value attr, or label)
+};
+// The <option> children of a <select>, in order.
+std::vector<SelectOption> select_options(const Element* select);
 
 }  // namespace hv

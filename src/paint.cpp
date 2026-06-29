@@ -196,11 +196,17 @@ void Painter::paint_widget(const LayoutBox* box, float x, float y) {
         case WidgetKind::Select: {
             fill_rect(x, y, box->width, box->height, face);
             stroke_rect(x, y, box->width, box->height, border);
-            if (box->font && !box->text.empty()) {
+            std::string label;
+            if (box->element) {
+                auto opts = select_options(box->element);
+                int idx = ws ? ws->option : 0;
+                if (idx >= 0 && idx < (int)opts.size()) label = opts[idx].label;
+            }
+            if (box->font && !label.empty()) {
                 int baseline = (int)(y + (box->height - (box->font->ascent + box->font->descent)) / 2 +
                                      box->font->ascent);
                 XftDrawStringUtf8(xft_, xft_color(dark), box->font, (int)x + 6, baseline,
-                                  (const FcChar8*)box->text.data(), (int)box->text.size());
+                                  (const FcChar8*)label.data(), (int)label.size());
             }
             // down arrow at the right edge
             XftColor* col = xft_color(dark);
@@ -260,6 +266,29 @@ void Painter::paint_widget(const LayoutBox* box, float x, float y) {
         }
         default:
             break;
+    }
+}
+
+void Painter::draw_dropdown(const LayoutBox* sel, int selected, float oy) {
+    const RGBA white{255, 255, 255, 255};
+    const RGBA border{120, 120, 120, 255};
+    const RGBA dark{30, 30, 30, 255};
+    const RGBA hl{60, 120, 220, 255};
+    const RGBA hl_text{255, 255, 255, 255};
+    if (!sel->element || !sel->font) return;
+
+    auto opts = select_options(sel->element);
+    float x = sel->x, w = sel->width, rh = sel->height;
+    float top = sel->y + sel->height + oy;
+    for (int i = 0; i < (int)opts.size(); ++i) {
+        float ry = top + i * rh;
+        bool on = (i == selected);
+        fill_rect(x, ry, w, rh, on ? hl : white);
+        stroke_rect(x, ry, w, rh, border);
+        int baseline = (int)(ry + (rh - (sel->font->ascent + sel->font->descent)) / 2 +
+                             sel->font->ascent);
+        XftDrawStringUtf8(xft_, xft_color(on ? hl_text : dark), sel->font, (int)x + 6, baseline,
+                          (const FcChar8*)opts[i].label.data(), (int)opts[i].label.size());
     }
 }
 

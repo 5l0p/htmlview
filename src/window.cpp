@@ -63,6 +63,15 @@ void init_form_state(const Node* n, FormState& fs) {
             std::string t = node_text(e);
             size_t a = t.find_first_not_of(" \t\r\n");
             fs[e].text = (a == std::string::npos) ? "" : t.substr(a);
+        } else if (e->tag == Tag::Select) {
+            int idx = 0, i = 0;
+            for (const auto& c : e->children)
+                if (c->is_element() &&
+                    static_cast<const Element*>(c.get())->tag == Tag::Option) {
+                    if (static_cast<const Element*>(c.get())->attr("selected")) idx = i;
+                    ++i;
+                }
+            fs[e].option = idx;
         }
         for (const auto& c : e->children) init_form_state(c.get(), fs);
     }
@@ -90,6 +99,18 @@ void select_radio(const Node* n, const std::string& name, const Element* chosen,
 void collect_focusables(const LayoutBox* box, std::vector<const Element*>& out) {
     if (box->widget == WidgetKind::TextInput && box->element) out.push_back(box->element);
     for (const auto& c : box->children) collect_focusables(c.get(), out);
+}
+
+// If (px,py) is over an open select's option row, return its index, else -1.
+int dropdown_hit(const LayoutBox* sel, float px, float py) {
+    if (px < sel->x || px >= sel->x + sel->width) return -1;
+    auto opts = select_options(sel->element);
+    float top = sel->y + sel->height;
+    for (int i = 0; i < (int)opts.size(); ++i) {
+        float ry = top + i * sel->height;
+        if (py >= ry && py < ry + sel->height) return i;
+    }
+    return -1;
 }
 
 // Deepest widget box under (px,py) in document coords.
@@ -126,6 +147,21 @@ bool has_token(const std::string& list, const char* token) {
     return false;
 }
 
+// Find a <base href="..."> directory prefix (trailing slash stripped), or "".
+std::string find_base_href(const Node* n) {
+    if (!n->is_element()) return "";
+    const auto* e = static_cast<const Element*>(n);
+    if (e->name == "base")
+        if (const std::string* h = e->attr("href")) {
+            std::string b = *h;
+            if (!b.empty() && b.back() == '/') b.pop_back();
+            return b;
+        }
+    for (const auto& c : e->children)
+        if (std::string r = find_base_href(c.get()); !r.empty()) return r;
+    return "";
+}
+
 // Parse <meta http-equiv=refresh content="SECS[; url=URL]">.
 void parse_meta_refresh(const Node* n, Page& pg) {
     if (!n->is_element()) return;
@@ -154,6 +190,9 @@ Page build_page(std::string src, std::string base_dir, const std::string& title_
     Page pg;
     pg.doc = parse_html(src);
     pg.doc.base_dir = std::move(base_dir);
+    // <base href> overrides the directory used to resolve relative links/srcs.
+    if (std::string b = find_base_href(pg.doc.root.get()); !b.empty())
+        pg.doc.base_dir = b;
     pg.rules = parse_css(gather_css(pg.doc, fetch));
     pg.has_hover = stylesheet_has_hover(pg.rules);
     pg.styles = resolve_styles(pg.doc, pg.rules);
@@ -298,7 +337,7 @@ void gather_fields(const Node* n, const FormState& fs, const Element* clicked,
             if (type == "checkbox" || type == "radio") {
                 auto it = fs.find(e);
                 if (it != fs.end() && it->second.checked) add(*name, val_attr("on"));
-            } else if (type == "submit" || type == "button") {
+            } else if (type == "submit" || type == "button" || type == "image") {
                 if (e == clicked) add(*name, val_attr(""));  // only the clicked submit
             } else if (type == "hidden") {
                 add(*name, val_attr(""));
@@ -310,17 +349,10 @@ void gather_fields(const Node* n, const FormState& fs, const Element* clicked,
             auto it = fs.find(e);
             add(*name, it != fs.end() ? it->second.text : "");
         } else if (e->tag == Tag::Select) {
-            for (const auto& c : e->children)
-                if (c->is_element() &&
-                    static_cast<const Element*>(c.get())->tag == Tag::Option) {
-                    const auto* o = static_cast<const Element*>(c.get());
-                    const std::string* v = o->attr("value");
-                    std::string label;
-                    for (const auto& cc : o->children)
-                        if (cc->is_text()) label += static_cast<const Text*>(cc.get())->data;
-                    add(*name, v ? *v : label);
-                    break;  // first option (no selection tracking yet)
-                }
+            auto opts = select_options(e);
+            int idx = 0;
+            if (auto it = fs.find(e); it != fs.end()) idx = it->second.option;
+            if (idx >= 0 && idx < (int)opts.size()) add(*name, opts[idx].value);
         }
     }
     for (const auto& c : e->children) gather_fields(c.get(), fs, clicked, out);
@@ -401,7 +433,8 @@ int run_window(const std::string& target0, const std::string& cgi_program,
     std::unique_ptr<LayoutBox> root;
     float scroll_y = 0, doc_height = 0;
     const Element* hovered = nullptr;
-    const Element* focused = nullptr;  // focused text-input element
+    const Element* focused = nullptr;      // focused text-input element
+    const Element* open_select = nullptr;  // <select> whose dropdown is open
 
     std::vector<std::string> history{target0};  // targets visited
     size_t hindex = 0;                           // current position in history
@@ -425,6 +458,10 @@ int run_window(const std::string& target0, const std::string& cgi_program,
         Painter p(dpy, buffer, visual, cmap, fonts);
         FormView fv{&page.form, focused, focused != nullptr};
         p.paint(root.get(), width, height, 0, scroll_y, fv);
+        if (open_select && root) {
+            if (const LayoutBox* sb = find_box_for(root.get(), open_select))
+                p.draw_dropdown(sb, page.form[open_select].option, -scroll_y);
+        }
         XCopyArea(dpy, buffer, win, gc, 0, 0, width, height, 0, 0);
     };
     auto clamp_scroll = [&]() {
@@ -457,6 +494,7 @@ int run_window(const std::string& target0, const std::string& cgi_program,
         scroll_y = 0;
         hovered = nullptr;
         focused = nullptr;
+        open_select = nullptr;
         relayout();
         clamp_scroll();
         repaint();
@@ -487,11 +525,13 @@ int run_window(const std::string& target0, const std::string& cgi_program,
             scroll_to_fragment(frag);
             return;
         }
+        // Resolve relative targets against base_dir (which a <base href> may
+        // have overridden). Absolute paths and base-less CGI requests pass through.
         std::string target;
-        if (cgi_mode)
-            target = base;  // a request path (optionally ?query) to the program
+        if (base[0] == '/' || page.doc.base_dir.empty())
+            target = base;
         else
-            target = (base[0] == '/') ? base : page.doc.base_dir + "/" + base;
+            target = page.doc.base_dir + "/" + base;
         // load_into always renders something (the page or an error page).
         if (load_into(target)) {
             if (push) push_history(target);
@@ -587,12 +627,22 @@ int run_window(const std::string& target0, const std::string& cgi_program,
                 else if (ev.xbutton.button == 5) { scroll_y += 48; clamp_scroll(); repaint(); }
                 else if (ev.xbutton.button == 1 && root) {
                     float dx = ev.xbutton.x, dy = ev.xbutton.y + scroll_y;
+                    // An open dropdown intercepts the click (select an option or close).
+                    if (open_select) {
+                        const LayoutBox* sb = find_box_for(root.get(), open_select);
+                        int oi = sb ? dropdown_hit(sb, dx, dy) : -1;
+                        if (oi >= 0) page.form[open_select].option = oi;
+                        open_select = nullptr;
+                        repaint();
+                        break;
+                    }
                     const LayoutBox* w = find_widget(root.get(), dx, dy);
                     const Element* prev_focus = focused;
                     focused = nullptr;
                     if (w) {
                         switch (w->widget) {
                             case WidgetKind::TextInput: focused = w->element; repaint(); break;
+                            case WidgetKind::Select: open_select = w->element; repaint(); break;
                             case WidgetKind::Checkbox:
                                 page.form[w->element].checked = !page.form[w->element].checked;
                                 repaint();
@@ -615,7 +665,8 @@ int run_window(const std::string& target0, const std::string& cgi_program,
                                                [](unsigned char c) { return (char)std::tolower(c); });
                                 bool is_submit = (be->tag == Tag::Button && type != "button" &&
                                                   type != "reset") ||
-                                                 (be->tag == Tag::Input && type == "submit");
+                                                 (be->tag == Tag::Input &&
+                                                  (type == "submit" || type == "image"));
                                 if (is_submit) { repaint(); submit_form(be); }
                                 else if (type == "reset") {
                                     if (const Element* form = enclosing_form(be)) {
@@ -637,6 +688,11 @@ int run_window(const std::string& target0, const std::string& cgi_program,
                 }
                 break;
             case KeyPress: {
+                // Escape closes an open dropdown before anything else.
+                if (open_select) {
+                    KeySym k = XLookupKeysym(&ev.xkey, 0);
+                    if (k == XK_Escape) { open_select = nullptr; repaint(); break; }
+                }
                 // When a text field is focused, route typing into it.
                 if (focused) {
                     char buf[32];
