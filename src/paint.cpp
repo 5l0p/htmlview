@@ -121,7 +121,12 @@ void Painter::paint_box(const LayoutBox* box, float ox, float oy) {
 
 void Painter::paint(const LayoutBox* root, int width, int height,
                     float scroll_x, float scroll_y) {
-    fill_rect(0, 0, width, height, RGBA{255, 255, 255, 255});
+    // The body background propagates to the whole canvas (incl. the body
+    // margin area), matching browser behaviour; default to white otherwise.
+    RGBA canvas{255, 255, 255, 255};
+    if (root && root->style && !root->style->background_color.transparent())
+        canvas = root->style->background_color;
+    fill_rect(0, 0, width, height, canvas);
     if (root) paint_box(root, -scroll_x, -scroll_y);
 }
 
