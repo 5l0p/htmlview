@@ -4,12 +4,18 @@ Roadmap for `htmlview`. Roughly ordered by value for the app-specific use case.
 
 ## Next up
 - [ ] **Basic forms** (the planned phase 2): `input` (text/checkbox/button),
-      focus management, keyboard entry, click dispatch. Hit-testing + link
-      `href` plumbing already exist to build on.
-- [ ] **Pseudo-classes** `a:hover` / `a:visited` (currently parsed but never
-      matched). At minimum track hover under the pointer and repaint.
-- [ ] **Vertical margin collapsing** between adjacent block boxes (today margins
-      simply add, so vertical spacing is larger than a browser's).
+      focus management, keyboard entry, click dispatch. Link hit-testing +
+      navigation already exist to build on.
+- [ ] **`:hover` recolour** — pointer tracking + hand cursor + local-link
+      navigation are done; still need to re-resolve `a:hover` style and repaint
+      the hovered link (and `a:visited` once history is tracked).
+- [ ] **Back/forward history** for navigation.
+
+## Done
+- [x] Adjacent-sibling vertical margin collapsing.
+- [x] Local link hit-testing, hand cursor on hover, click-to-navigate.
+- [x] Per-side `border-*` shorthands; legacy `<!-- -->` style-comment wrapper.
+- [x] Body background propagation to the canvas.
 
 ## Layout fidelity
 - [ ] Table `colspan` / `rowspan` and auto min/max column sizing (currently even

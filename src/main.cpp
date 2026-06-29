@@ -91,5 +91,5 @@ int main(int argc, char** argv) {
     if (render_to)
         return hv::render_to_png(doc, styles, width, render_to);
 
-    return hv::run_window(doc, styles, doc.title.empty() ? path : doc.title);
+    return hv::run_window(path);
 }

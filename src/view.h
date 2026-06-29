@@ -9,7 +9,9 @@
 
 namespace hv {
 
-int run_window(const Document& doc, const StyleMap& styles, const std::string& title);
+// Open a live window for the document at `path`, loading it (and any local
+// links the user clicks) from disk.
+int run_window(const std::string& path);
 
 // Render the document at `width` px into a PNG via Imlib2. Returns 0 on success.
 int render_to_png(const Document& doc, const StyleMap& styles, int width,

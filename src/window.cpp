@@ -2,20 +2,87 @@
 
 #include <X11/Xlib.h>
 #include <X11/keysym.h>
+#include <X11/cursorfont.h>
 #include <Imlib2.h>
+
+#include <sys/stat.h>
 
 #include <algorithm>
 #include <cmath>
 #include <cstdio>
+#include <fstream>
+#include <sstream>
 
+#include "css.h"
 #include "font.h"
+#include "html_parser.h"
 #include "layout.h"
 #include "paint.h"
+#include "style.h"
 #include "view.h"
 
 namespace hv {
 
-int run_window(const Document& doc, const StyleMap& styles, const std::string& title) {
+namespace {
+
+// A loaded document plus everything derived from it. StyleMap keys point into
+// doc's node tree, so the two must live and move together.
+struct Page {
+    Document doc;
+    std::vector<Rule> rules;
+    StyleMap styles;
+    std::string title;
+    bool ok = false;
+};
+
+bool read_file(const std::string& path, std::string& out) {
+    std::ifstream f(path, std::ios::binary);
+    if (!f) return false;
+    std::ostringstream ss;
+    ss << f.rdbuf();
+    out = ss.str();
+    return true;
+}
+
+Page load_page(const std::string& path) {
+    Page pg;
+    std::string src;
+    if (!read_file(path, src)) {
+        std::fprintf(stderr, "htmlview: cannot read %s\n", path.c_str());
+        return pg;
+    }
+    pg.doc = parse_html(src);
+    size_t slash = path.find_last_of('/');
+    pg.doc.base_dir = (slash == std::string::npos) ? "." : path.substr(0, slash);
+    pg.rules = parse_css(pg.doc.css);
+    pg.styles = resolve_styles(pg.doc, pg.rules);
+    pg.title = pg.doc.title.empty() ? path : pg.doc.title;
+    pg.ok = true;
+    return pg;
+}
+
+// Deepest box under (px,py) in document coords that carries a link href.
+const std::string* find_href(const LayoutBox* box, float px, float py) {
+    const std::string* found = nullptr;
+    if (!box->href.empty() && px >= box->x && px < box->x + box->width &&
+        py >= box->y && py < box->y + box->height)
+        found = &box->href;
+    for (const auto& c : box->children)
+        if (const std::string* r = find_href(c.get(), px, py)) found = r;
+    return found;
+}
+
+bool file_exists(const std::string& p) {
+    struct stat st;
+    return ::stat(p.c_str(), &st) == 0;
+}
+
+}  // namespace
+
+int run_window(const std::string& path) {
+    Page page = load_page(path);
+    if (!page.ok) return 1;
+
     Display* dpy = XOpenDisplay(nullptr);
     if (!dpy) { std::fprintf(stderr, "htmlview: cannot open X display\n"); return 1; }
 
@@ -28,13 +95,17 @@ int run_window(const Document& doc, const StyleMap& styles, const std::string& t
     int width = 800, height = 600;
     Window win = XCreateSimpleWindow(dpy, RootWindow(dpy, screen), 0, 0, width, height,
                                      0, white, white);
-    XStoreName(dpy, win, title.c_str());
-    XSelectInput(dpy, win, ExposureMask | StructureNotifyMask | KeyPressMask | ButtonPressMask);
+    XStoreName(dpy, win, page.title.c_str());
+    XSelectInput(dpy, win, ExposureMask | StructureNotifyMask | KeyPressMask |
+                               ButtonPressMask | PointerMotionMask);
     XMapWindow(dpy, win);
 
     imlib_context_set_display(dpy);
     imlib_context_set_visual(visual);
     imlib_context_set_colormap(cmap);
+
+    Cursor hand = XCreateFontCursor(dpy, XC_hand2);
+    bool hand_active = false;
 
     FontCache fonts(dpy, screen);
     GC gc = XCreateGC(dpy, win, 0, nullptr);
@@ -44,7 +115,7 @@ int run_window(const Document& doc, const StyleMap& styles, const std::string& t
     float scroll_y = 0, doc_height = 0;
 
     auto relayout = [&]() {
-        root = layout_document(doc, styles, fonts, (float)width);
+        root = layout_document(page.doc, page.styles, fonts, (float)width);
         doc_height = root ? root->height : 0;
     };
     auto repaint = [&]() {
@@ -55,6 +126,25 @@ int run_window(const Document& doc, const StyleMap& styles, const std::string& t
     auto clamp_scroll = [&]() {
         float max_scroll = std::max(0.0f, doc_height - height);
         scroll_y = std::clamp(scroll_y, 0.0f, max_scroll);
+    };
+    auto navigate = [&](const std::string& href) {
+        if (href.rfind("http://", 0) == 0 || href.rfind("https://", 0) == 0) {
+            std::fprintf(stderr, "htmlview: external link not followed: %s\n", href.c_str());
+            return;
+        }
+        std::string target = (href[0] == '/') ? href : page.doc.base_dir + "/" + href;
+        if (!file_exists(target)) {
+            std::fprintf(stderr, "htmlview: link target not found: %s\n", target.c_str());
+            return;
+        }
+        Page np = load_page(target);
+        if (!np.ok) return;
+        page = std::move(np);
+        XStoreName(dpy, win, page.title.c_str());
+        scroll_y = 0;
+        relayout();
+        clamp_scroll();
+        repaint();
     };
 
     relayout();
@@ -78,9 +168,23 @@ int run_window(const Document& doc, const StyleMap& styles, const std::string& t
                     repaint();
                 }
                 break;
+            case MotionNotify: {
+                bool over = root && find_href(root.get(), ev.xmotion.x,
+                                              ev.xmotion.y + scroll_y) != nullptr;
+                if (over != hand_active) {
+                    XDefineCursor(dpy, win, over ? hand : None);
+                    hand_active = over;
+                }
+                break;
+            }
             case ButtonPress:
                 if (ev.xbutton.button == 4) { scroll_y -= 48; clamp_scroll(); repaint(); }
                 else if (ev.xbutton.button == 5) { scroll_y += 48; clamp_scroll(); repaint(); }
+                else if (ev.xbutton.button == 1 && root) {
+                    if (const std::string* href = find_href(root.get(), ev.xbutton.x,
+                                                            ev.xbutton.y + scroll_y))
+                        navigate(*href);
+                }
                 break;
             case KeyPress: {
                 KeySym ks = XLookupKeysym(&ev.xkey, 0);
@@ -89,11 +193,14 @@ int run_window(const Document& doc, const StyleMap& styles, const std::string& t
                 else if (ks == XK_Up) { scroll_y -= 48; clamp_scroll(); repaint(); }
                 else if (ks == XK_Page_Down) { scroll_y += height - 40; clamp_scroll(); repaint(); }
                 else if (ks == XK_Page_Up) { scroll_y -= height - 40; clamp_scroll(); repaint(); }
+                else if (ks == XK_Home) { scroll_y = 0; repaint(); }
+                else if (ks == XK_End) { scroll_y = doc_height; clamp_scroll(); repaint(); }
                 break;
             }
         }
     }
 
+    XFreeCursor(dpy, hand);
     XFreePixmap(dpy, buffer);
     XFreeGC(dpy, gc);
     XDestroyWindow(dpy, win);
