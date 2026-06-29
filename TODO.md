@@ -43,15 +43,18 @@ Roadmap for `htmlview`. Roughly ordered by value for the app-specific use case.
 ## Layout fidelity
 - [x] Table `colspan` / `rowspan` (grid-occupancy model). Still even columns —
       auto min/max column sizing and `border-collapse` remain.
-- [ ] `width` / `margin: auto` horizontal centering of block boxes.
-- [ ] Percentage lengths (`width: 50%`, etc.).
+- [x] `%` widths (and `%`/px heights); `margin: auto` horizontal centering.
+- [ ] `%` margins/padding (resolve against containing-block width).
 - [ ] `line-height` property (today derived purely from font metrics).
 - [ ] Inline `vertical-align` (baseline/middle/top) for images and mixed fonts.
+- [ ] Floats (`float`/`clear`) and positioning (`relative`/`absolute`) — parked.
 
 ## CSS coverage
+- [x] `border-style` (`solid/dashed/dotted/double`); `background-image` (tiled)
+      + `url()` in the `background` shorthand.
 - [ ] `font` shorthand.
-- [ ] `border-radius`, `border-style` rendering (only solid is drawn now).
-- [ ] `background-image` (Imlib2 tiling) and `background` shorthand parsing.
+- [ ] `border-radius` (rounded corners + bg clipping).
+- [ ] `background-repeat` / `background-position` (currently always tiled).
 - [ ] Child / sibling combinators (`>`, `+`, `~`) and attribute selectors.
 
 ## Parsing / robustness

@@ -90,9 +90,11 @@ CSS  ─▶ css ─▶ rules ───────┴▶ style (cascade) ─▶ 
   numeric `&#nnn;` / `&#xhh;` references. `<img alt>` shown when an image fails.
 - **Images:** local files (relative to the doc / `<base href>`), `data:` URLs
   (base64 or percent-encoded), and — in CGI mode — images fetched from the backend.
-- **CSS properties:** `display`, `color`, `background-color`, `font-family/size/weight/style`,
-  `text-align`, `text-decoration`, `list-style-type`, `margin*`, `padding*`,
-  `border` + per-side `border-top/right/bottom/left` (solid), `width`, `height`.
+- **CSS properties:** `display`, `color`, `background-color`, `background-image`
+  (tiled), `font-family/size/weight/style`, `text-align`, `text-decoration`,
+  `list-style-type`, `margin*` (incl. `auto` for centering), `padding*`,
+  `border` + per-side `border-top/right/bottom/left` with `solid/dashed/dotted/
+  double` styles, `width`/`height` in px **or `%`**.
 - Tolerates the legacy `<style><!-- ... --></style>` SGML-comment wrapper.
 - **CSS selectors:** type, `.class`, `#id`, descendant (`div p`), grouping (`h1, h3`),
   plus inline `style=""`. Specificity + source-order cascade with inheritance.

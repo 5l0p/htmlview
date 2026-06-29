@@ -52,6 +52,7 @@ struct LayoutBox {
 
     // Image payload.
     std::string img_src;
+    std::string bg_image;  // resolved local path for background-image (Block boxes)
 
     // Link target for hit-testing (propagated from enclosing <a>).
     std::string href;

@@ -30,9 +30,26 @@ struct Edges {  // top, right, bottom, left (CSS order)
     float top = 0, right = 0, bottom = 0, left = 0;
 };
 
+// A CSS length that may be auto, a pixel value, or a percentage of a base.
+struct Length {
+    enum Unit { Auto, Px, Percent };
+    Unit unit = Auto;
+    float value = 0;
+    bool is_auto() const { return unit == Auto; }
+    float resolve(float base, float fallback) const {
+        if (unit == Px) return value;
+        if (unit == Percent) return value / 100.0f * base;
+        return fallback;
+    }
+};
+
+// No "None" member — collides with the X11 macro; width==0 means no border.
+enum class BorderStyle { Solid, Dashed, Dotted, Double };
+
 struct BorderSide {
     float width = 0;
     RGBA color;  // defaults transparent; rendered only if width>0 && !transparent
+    BorderStyle style = BorderStyle::Solid;
 };
 
 struct Border {
@@ -58,11 +75,13 @@ struct ComputedStyle {
     bool preserve_ws = false;  // set true for <pre>
 
     // Non-inherited.
-    RGBA background_color;  // transparent by default
+    RGBA background_color;        // transparent by default
+    std::string background_image; // CSS url() (or data:), "" = none
     Edges margin, padding;
+    bool margin_left_auto = false, margin_right_auto = false;  // for centering
     Border border;
     TextDecoration text_decoration = TextDecoration::NoDecoration;
-    float width = kAuto, height = kAuto;
+    Length width, height;        // default: auto
 };
 
 using StyleMap = std::unordered_map<const Element*, ComputedStyle>;

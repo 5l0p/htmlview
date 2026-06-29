@@ -62,6 +62,60 @@ void Painter::stroke_rect(float x, float y, float w, float h, const RGBA& c) {
     fill_rect(x + w - 1, y, 1, h, c);
 }
 
+void Painter::paint_bg_image(const std::string& path, float x, float y, float w, float h) {
+    Imlib_Image im = imlib_load_image(path.c_str());
+    if (!im) return;
+    imlib_context_set_image(im);
+    int iw = imlib_image_get_width(), ih = imlib_image_get_height();
+    if (iw > 0 && ih > 0) {
+        imlib_context_set_drawable(target_);
+        imlib_context_set_anti_alias(1);
+        // background-repeat: repeat (default); partial tiles clipped at the edges.
+        for (int ty = (int)y; ty < (int)(y + h); ty += ih)
+            for (int tx = (int)x; tx < (int)(x + w); tx += iw) {
+                int dw = std::min(iw, (int)(x + w) - tx);
+                int dh = std::min(ih, (int)(y + h) - ty);
+                imlib_render_image_part_on_drawable_at_size(0, 0, dw, dh, tx, ty, dw, dh);
+            }
+    }
+    imlib_free_image();
+}
+
+void Painter::paint_border_side(float x, float y, float w, float h, bool horizontal,
+                                const BorderSide& b) {
+    if (b.width <= 0 || b.color.transparent()) return;
+    switch (b.style) {
+        case BorderStyle::Solid:
+            fill_rect(x, y, w, h, b.color);
+            break;
+        case BorderStyle::Double: {
+            float t = std::max(1.0f, b.width / 3);
+            if (horizontal) { fill_rect(x, y, w, t, b.color); fill_rect(x, y + h - t, w, t, b.color); }
+            else { fill_rect(x, y, t, h, b.color); fill_rect(x + w - t, y, t, h, b.color); }
+            break;
+        }
+        case BorderStyle::Dashed:
+        case BorderStyle::Dotted: {
+            XSetForeground(dpy_, gc_, xft_color(b.color)->pixel);
+            int lw = (int)std::max(1.0f, b.width);
+            char dashes[2];
+            if (b.style == BorderStyle::Dotted) { dashes[0] = (char)lw; dashes[1] = (char)lw; }
+            else { dashes[0] = (char)std::max(3, lw * 2); dashes[1] = (char)std::max(2, lw); }
+            XSetLineAttributes(dpy_, gc_, lw, LineOnOffDash, CapButt, JoinMiter);
+            XSetDashes(dpy_, gc_, 0, dashes, 2);
+            if (horizontal) {
+                int cy = (int)(y + h / 2);
+                XDrawLine(dpy_, target_, gc_, (int)x, cy, (int)(x + w), cy);
+            } else {
+                int cx = (int)(x + w / 2);
+                XDrawLine(dpy_, target_, gc_, cx, (int)y, cx, (int)(y + h));
+            }
+            XSetLineAttributes(dpy_, gc_, 1, LineSolid, CapButt, JoinMiter);  // reset
+            break;
+        }
+    }
+}
+
 void Painter::paint_box(const LayoutBox* box, float ox, float oy) {
     float x = box->x + ox, y = box->y + oy;
 
@@ -69,14 +123,15 @@ void Painter::paint_box(const LayoutBox* box, float ox, float oy) {
         const ComputedStyle& s = *box->style;
         if (!s.background_color.transparent())
             fill_rect(x, y, box->width, box->height, s.background_color);
+        if (!box->bg_image.empty())
+            paint_bg_image(box->bg_image, x, y, box->width, box->height);
         if (s.border.any()) {
             const Border& b = s.border;
-            if (b.top.width > 0)    fill_rect(x, y, box->width, b.top.width, b.top.color);
-            if (b.bottom.width > 0) fill_rect(x, y + box->height - b.bottom.width,
-                                              box->width, b.bottom.width, b.bottom.color);
-            if (b.left.width > 0)   fill_rect(x, y, b.left.width, box->height, b.left.color);
-            if (b.right.width > 0)  fill_rect(x + box->width - b.right.width, y,
-                                              b.right.width, box->height, b.right.color);
+            float W = box->width, H = box->height;
+            paint_border_side(x, y, W, b.top.width, true, b.top);
+            paint_border_side(x, y + H - b.bottom.width, W, b.bottom.width, true, b.bottom);
+            paint_border_side(x, y, b.left.width, H, false, b.left);
+            paint_border_side(x + W - b.right.width, y, b.right.width, H, false, b.right);
         }
     }
 

@@ -40,6 +40,11 @@ private:
     void stroke_rect(float x, float y, float w, float h, const RGBA& c);
     void paint_box(const LayoutBox* box, float ox, float oy);
     void paint_widget(const LayoutBox* box, float x, float y);
+    void paint_bg_image(const std::string& path, float x, float y, float w, float h);
+    // One border side; `horizontal` true for top/bottom. Honors solid/dashed/
+    // dotted/double.
+    void paint_border_side(float x, float y, float w, float h, bool horizontal,
+                           const BorderSide& b);
     XftColor* xft_color(const RGBA& c);
 
     Display* dpy_;

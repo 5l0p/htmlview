@@ -437,13 +437,26 @@ std::unique_ptr<LayoutBox> layout_block(const StyleMap& sm, FontCache& fonts,
 
     float bl = st.border.left.width, br = st.border.right.width;
     float pl = st.padding.left, pr = st.padding.right;
-    float content_width = (st.width != kAuto)
-                              ? st.width
-                              : std::max(0.0f, avail_width - st.margin.left - st.margin.right
-                                                   - bl - br - pl - pr);
+    float ml = st.margin.left, mr = st.margin.right;
+
+    // Resolve width (auto / px / %); then auto left/right margins absorb any
+    // leftover space (margin:auto centering).
+    float content_width;
+    if (!st.width.is_auto()) {
+        content_width = std::max(0.0f, st.width.resolve(avail_width, 0));
+        float free = avail_width - content_width - pl - pr - bl - br
+                     - (st.margin_left_auto ? 0 : ml) - (st.margin_right_auto ? 0 : mr);
+        if (st.margin_left_auto && st.margin_right_auto) ml = mr = std::max(0.0f, free / 2);
+        else if (st.margin_left_auto) ml = std::max(0.0f, free);
+        else if (st.margin_right_auto) mr = std::max(0.0f, free);
+    } else {
+        if (st.margin_left_auto) ml = 0;
+        if (st.margin_right_auto) mr = 0;
+        content_width = std::max(0.0f, avail_width - ml - mr - bl - br - pl - pr);
+    }
     float box_width = content_width + pl + pr + bl + br;
 
-    box->x = x + st.margin.left;
+    box->x = x + ml;
     box->y = top + st.margin.top;
     box->width = box_width;
 
@@ -532,9 +545,15 @@ std::unique_ptr<LayoutBox> layout_block(const StyleMap& sm, FontCache& fonts,
         cursor += h;
     }
 
-    float content_height = (st.height != kAuto) ? st.height : (cursor - content_top);
+    // height: px is honoured; % needs a definite container height (rare) so we
+    // fall back to the content height as browsers do for auto.
+    float content_height = st.height.unit == Length::Px
+                               ? st.height.value
+                               : (cursor - content_top);
     box->height = st.border.top.width + st.padding.top + content_height
                   + st.padding.bottom + st.border.bottom.width;
+    if (resolve_image && !st.background_image.empty())
+        box->bg_image = resolve_image(st.background_image);
     return box;
 }
 
@@ -559,8 +578,8 @@ std::unique_ptr<LayoutBox> layout_table(const StyleMap& sm, FontCache& fonts,
 
     float bl = st.border.left.width, brd = st.border.right.width;
     float pl = st.padding.left, pr = st.padding.right;
-    float content_width = (st.width != kAuto)
-                              ? st.width
+    float content_width = !st.width.is_auto()
+                              ? std::max(0.0f, st.width.resolve(avail_width, 0))
                               : std::max(0.0f, avail_width - st.margin.left - st.margin.right
                                                    - bl - brd - pl - pr);
     table->x = x + st.margin.left;
@@ -655,7 +674,8 @@ std::unique_ptr<LayoutBox> layout_table(const StyleMap& sm, FontCache& fonts,
         rowbox[ci.row]->add(std::move(ci.box));
     }
 
-    float content_height = (st.height != kAuto) ? st.height : (row_y[nrows] - content_top);
+    float content_height = st.height.unit == Length::Px ? st.height.value
+                                                        : (row_y[nrows] - content_top);
     table->height = st.border.top.width + st.padding.top + content_height
                     + st.padding.bottom + st.border.bottom.width;
     return table;

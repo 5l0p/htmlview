@@ -103,6 +103,21 @@ bool parse_length_px(const std::string& in_raw, float em_base, float& out) {
 
 namespace {
 
+// Parse a length keyword: "auto", "50%", "12px"/"1em"/...  Unknown -> auto.
+Length parse_length(const std::string& in_raw, float em) {
+    std::string in = to_lower(trim(in_raw));
+    if (in.empty() || in == "auto") return Length{};
+    if (!in.empty() && in.back() == '%') {
+        Length l;
+        l.unit = Length::Percent;
+        l.value = (float)std::strtod(in.c_str(), nullptr);
+        return l;
+    }
+    float px;
+    if (parse_length_px(in, em, px)) return Length{Length::Px, px};
+    return Length{};
+}
+
 void set_edges(Edges& e, const std::string& value, float em) {
     std::vector<std::string> p = ws_split(value);
     std::vector<float> v;
@@ -114,19 +129,50 @@ void set_edges(Edges& e, const std::string& value, float em) {
     else e = {v[0], v[1], v[2], v[3]};
 }
 
+// Parse `margin` shorthand, honoring `auto` on left/right (for centering).
+void set_margin(ComputedStyle& s, const std::string& value, float em) {
+    std::vector<std::string> p = ws_split(value);
+    if (p.empty()) return;
+    // Expand 1-4 values into top,right,bottom,left.
+    std::vector<std::string> t(4);
+    if (p.size() == 1) t = {p[0], p[0], p[0], p[0]};
+    else if (p.size() == 2) t = {p[0], p[1], p[0], p[1]};
+    else if (p.size() == 3) t = {p[0], p[1], p[2], p[1]};
+    else t = {p[0], p[1], p[2], p[3]};
+    auto px = [&](const std::string& x) { float f = 0; parse_length_px(x, em, f); return f; };
+    s.margin = {px(t[0]), px(t[1]), px(t[2]), px(t[3])};
+    s.margin_left_auto = (to_lower(t[3]) == "auto");
+    s.margin_right_auto = (to_lower(t[1]) == "auto");
+}
+
 // Parse a single border spec like "5px solid #463705" (tokens in any order).
 BorderSide parse_border_side(const std::string& value, float em) {
-    BorderSide side{1, RGBA{0, 0, 0, 255}};  // default medium black
+    BorderSide side{1, RGBA{0, 0, 0, 255}, BorderStyle::Solid};  // default medium black
     for (const std::string& tok : ws_split(value)) {
         float w;
         RGBA c;
         std::string t = to_lower(tok);
         if (t == "none" || t == "hidden") { side.width = 0; continue; }
-        if (t == "solid" || t == "dashed" || t == "dotted" || t == "double") continue;
+        if (t == "solid") { side.style = BorderStyle::Solid; continue; }
+        if (t == "dashed") { side.style = BorderStyle::Dashed; continue; }
+        if (t == "dotted") { side.style = BorderStyle::Dotted; continue; }
+        if (t == "double") { side.style = BorderStyle::Double; continue; }
         if (parse_color(tok, c)) { side.color = c; continue; }
         if (parse_length_px(tok, em, w)) { side.width = w; continue; }
     }
     return side;
+}
+
+// Extract the URL from `url(...)`, stripping quotes. "" if none.
+std::string parse_url(const std::string& value) {
+    size_t u = value.find("url(");
+    if (u == std::string::npos) return "";
+    size_t a = u + 4, b = value.find(')', a);
+    if (b == std::string::npos) return "";
+    std::string url = trim(value.substr(a, b - a));
+    if (url.size() >= 2 && (url.front() == '"' || url.front() == '\''))
+        url = url.substr(1, url.size() - 2);
+    return url;
 }
 
 void apply_decl(ComputedStyle& s, const Declaration& d) {
@@ -145,8 +191,12 @@ void apply_decl(ComputedStyle& s, const Declaration& d) {
         else if (lv == "table-cell") s.display = DisplayType::TableCell;
     } else if (p == "color") {
         parse_color(v, s.color);
+    } else if (p == "background-image") {
+        s.background_image = parse_url(v);
     } else if (p == "background-color" || p == "background") {
         RGBA c; if (parse_color(v, c)) s.background_color = c;
+        if (p == "background")  // shorthand may also carry an image
+            if (std::string u = parse_url(v); !u.empty()) s.background_image = u;
     } else if (p == "font-family") {
         // Keep the whole prioritised list (quotes stripped, comma-separated);
         // the font cache feeds it to fontconfig for first-available fallback.
@@ -187,11 +237,15 @@ void apply_decl(ComputedStyle& s, const Declaration& d) {
         else if (lv.find("none") != std::string::npos) s.list_style = ListStyle::NoMarker;
         else s.list_style = ListStyle::Disc;
     } else if (p == "margin") {
-        set_edges(s.margin, v, em);
+        set_margin(s, v, em);
     } else if (p == "margin-top") { float f; if (parse_length_px(v, em, f)) s.margin.top = f;
-    } else if (p == "margin-right") { float f; if (parse_length_px(v, em, f)) s.margin.right = f;
+    } else if (p == "margin-right") {
+        if (to_lower(trim(v)) == "auto") { s.margin_right_auto = true; s.margin.right = 0; }
+        else { float f; if (parse_length_px(v, em, f)) { s.margin.right = f; s.margin_right_auto = false; } }
     } else if (p == "margin-bottom") { float f; if (parse_length_px(v, em, f)) s.margin.bottom = f;
-    } else if (p == "margin-left") { float f; if (parse_length_px(v, em, f)) s.margin.left = f;
+    } else if (p == "margin-left") {
+        if (to_lower(trim(v)) == "auto") { s.margin_left_auto = true; s.margin.left = 0; }
+        else { float f; if (parse_length_px(v, em, f)) { s.margin.left = f; s.margin_left_auto = false; } }
     } else if (p == "padding") {
         set_edges(s.padding, v, em);
     } else if (p == "padding-top") { float f; if (parse_length_px(v, em, f)) s.padding.top = f;
@@ -220,11 +274,9 @@ void apply_decl(ComputedStyle& s, const Declaration& d) {
                 s.border.left.color = c;
         }
     } else if (p == "width") {
-        if (to_lower(v) == "auto") s.width = kAuto;
-        else { float f; if (parse_length_px(v, em, f)) s.width = f; }
+        s.width = parse_length(v, em);
     } else if (p == "height") {
-        if (to_lower(v) == "auto") s.height = kAuto;
-        else { float f; if (parse_length_px(v, em, f)) s.height = f; }
+        s.height = parse_length(v, em);
     }
 }
 
@@ -233,11 +285,13 @@ ComputedStyle ua_defaults(const Element& e, const ComputedStyle& parent) {
     ComputedStyle s = parent;  // start from inherited values
     // Reset non-inherited properties to initial each element.
     s.background_color = RGBA{};
+    s.background_image.clear();
     s.margin = Edges{};
     s.padding = Edges{};
+    s.margin_left_auto = s.margin_right_auto = false;
     s.border = Border{};
     s.text_decoration = TextDecoration::NoDecoration;
-    s.width = s.height = kAuto;
+    s.width = s.height = Length{};
     s.display = DisplayType::Inline;
 
     auto block = [&] { s.display = DisplayType::Block; };
