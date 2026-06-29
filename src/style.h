@@ -2,6 +2,7 @@
 #pragma once
 
 #include <cstdint>
+#include <functional>
 #include <string>
 #include <unordered_map>
 
@@ -76,6 +77,12 @@ StyleMap resolve_styles(const Document& doc, const std::vector<Rule>& author,
 // True if any author rule uses a `:hover` pseudo-class (lets callers skip the
 // re-resolve-on-hover machinery when it can have no effect).
 bool stylesheet_has_hover(const std::vector<Rule>& author);
+
+// Concatenate the document's CSS in source order: <style> block text plus the
+// contents of every <link rel=stylesheet href>, fetched via `fetch` (which
+// returns the resource text, or "" on failure).
+std::string gather_css(const Document& doc,
+                       const std::function<std::string(const std::string&)>& fetch);
 
 // Value parsers (also used by layout/paint). Return false on failure.
 bool parse_color(const std::string& in, RGBA& out);

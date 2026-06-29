@@ -401,6 +401,41 @@ bool stylesheet_has_hover(const std::vector<Rule>& author) {
 }
 
 namespace {
+bool rel_has(const std::string& list, const char* token) {
+    std::stringstream ss(list);
+    std::string w;
+    while (ss >> w) {
+        std::transform(w.begin(), w.end(), w.begin(),
+                       [](unsigned char c) { return (char)std::tolower(c); });
+        if (w == token) return true;
+    }
+    return false;
+}
+void collect_css(const Node* n, const std::function<std::string(const std::string&)>& fetch,
+                 std::string& out) {
+    if (!n->is_element()) return;
+    const auto* e = static_cast<const Element*>(n);
+    if (e->tag == Tag::Style) {
+        for (const auto& c : e->children)
+            if (c->is_text()) out += static_cast<const Text*>(c.get())->data;
+        out += "\n";
+    } else if (e->name == "link") {
+        const std::string* rel = e->attr("rel");
+        const std::string* href = e->attr("href");
+        if (rel && href && rel_has(*rel, "stylesheet")) { out += fetch(*href); out += "\n"; }
+    }
+    for (const auto& c : e->children) collect_css(c.get(), fetch, out);
+}
+}  // namespace
+
+std::string gather_css(const Document& doc,
+                       const std::function<std::string(const std::string&)>& fetch) {
+    std::string out;
+    collect_css(doc.root.get(), fetch, out);
+    return out;
+}
+
+namespace {
 const char* disp_name(DisplayType d) {
     switch (d) {
         case DisplayType::Block: return "block"; case DisplayType::Inline: return "inline";

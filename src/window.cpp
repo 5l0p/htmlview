@@ -6,10 +6,13 @@
 #include <Imlib2.h>
 
 #include <algorithm>
+#include <chrono>
 #include <cmath>
 #include <cstdio>
 #include <fstream>
+#include <functional>
 #include <sstream>
+#include <sys/select.h>
 
 #include "cgi.h"
 #include "css.h"
@@ -33,6 +36,8 @@ struct Page {
     FormState form;         // mutable control state, keyed by Element
     std::string title;
     bool has_hover = false;  // stylesheet uses :hover -> track pointer for restyle
+    int refresh = 0;         // <meta http-equiv=refresh> seconds (0 = none)
+    std::string refresh_url; // optional target of the meta refresh
     bool ok = false;
 };
 
@@ -84,18 +89,59 @@ bool read_file(const std::string& path, std::string& out) {
 }
 
 // Build a Page from HTML source (shared by the file and CGI loaders).
-Page build_page(std::string src, std::string base_dir, const std::string& title_fallback) {
+using FetchFn = std::function<std::string(const std::string&)>;
+
+bool has_token(const std::string& list, const char* token) {
+    std::stringstream ss(list);
+    std::string w;
+    while (ss >> w) {
+        std::transform(w.begin(), w.end(), w.begin(),
+                       [](unsigned char c) { return (char)std::tolower(c); });
+        if (w == token) return true;
+    }
+    return false;
+}
+
+// Parse <meta http-equiv=refresh content="SECS[; url=URL]">.
+void parse_meta_refresh(const Node* n, Page& pg) {
+    if (!n->is_element()) return;
+    const auto* e = static_cast<const Element*>(n);
+    if (e->name == "meta") {
+        const std::string* eq = e->attr("http-equiv");
+        const std::string* content = e->attr("content");
+        if (eq && content && has_token(*eq, "refresh")) {
+            pg.refresh = std::atoi(content->c_str());
+            size_t u = content->find("url=");
+            if (u == std::string::npos) u = content->find("URL=");
+            if (u != std::string::npos) {
+                std::string url = content->substr(u + 4);
+                size_t a = url.find_first_not_of(" \t'\"");
+                size_t b = url.find_last_not_of(" \t'\"");
+                if (a != std::string::npos) pg.refresh_url = url.substr(a, b - a + 1);
+            }
+        }
+    }
+    for (const auto& c : static_cast<const Element*>(n)->children)
+        parse_meta_refresh(c.get(), pg);
+}
+
+Page build_page(std::string src, std::string base_dir, const std::string& title_fallback,
+                const FetchFn& fetch) {
     Page pg;
     pg.doc = parse_html(src);
     pg.doc.base_dir = std::move(base_dir);
-    pg.rules = parse_css(pg.doc.css);
+    pg.rules = parse_css(gather_css(pg.doc, fetch));
     pg.has_hover = stylesheet_has_hover(pg.rules);
     pg.styles = resolve_styles(pg.doc, pg.rules);
     init_form_state(pg.doc.root.get(), pg.form);
+    parse_meta_refresh(pg.doc.root.get(), pg);
     pg.title = pg.doc.title.empty() ? title_fallback : pg.doc.title;
     pg.ok = true;
     return pg;
 }
+
+// No-op fetch for self-contained HTML (error pages, etc.).
+const FetchFn kNoFetch = [](const std::string&) { return std::string(); };
 
 std::string html_escape(const std::string& s) {
     std::string out;
@@ -121,8 +167,7 @@ Page make_error_page(const std::string& heading, const std::string& detail) {
         "</style>"
         "<body><div class=\"err\"><h1>" + html_escape(heading) + "</h1>"
         "<p><code>" + html_escape(detail) + "</code></p></div></body>";
-    Page pg = build_page(std::move(html), "", heading);
-    return pg;
+    return build_page(std::move(html), "", heading, kNoFetch);
 }
 
 Page load_file_page(const std::string& path) {
@@ -133,7 +178,14 @@ Page load_file_page(const std::string& path) {
     }
     size_t slash = path.find_last_of('/');
     std::string base = (slash == std::string::npos) ? "." : path.substr(0, slash);
-    return build_page(std::move(src), base, path);
+    // Resolve <link> stylesheet hrefs against the document's directory.
+    FetchFn fetch = [base](const std::string& href) -> std::string {
+        std::string p = (!href.empty() && href[0] == '/') ? href : base + "/" + href;
+        std::string s;
+        if (!read_file(p, s)) std::fprintf(stderr, "htmlview: cannot read %s\n", p.c_str());
+        return s;
+    };
+    return build_page(std::move(src), base, path, fetch);
 }
 
 // Run a CGI request for `target` ("path?query") and build a Page from the
@@ -157,9 +209,19 @@ Page load_cgi_page(const std::string& program, const std::string& target) {
         std::string body = r.body;
         if (ct.rfind("text/plain", 0) == 0)
             body = "<pre>" + html_escape(body) + "</pre>";
-        return build_page(std::move(body), "", path);
+        // <link> stylesheets are fetched as further GET requests to the program.
+        FetchFn fetch = [&program](const std::string& href) -> std::string {
+            std::string p = href, query;
+            if (size_t q = href.find('?'); q != std::string::npos) {
+                p = href.substr(0, q);
+                query = href.substr(q + 1);
+            }
+            CgiResponse rr = run_cgi(program, "GET", p, query);
+            return rr.ok ? rr.body : std::string();
+        };
+        return build_page(std::move(body), "", path, fetch);
     }
-    return build_page("<title>CGI</title><p>too many redirects</p>", "", "CGI");
+    return build_page("<title>CGI</title><p>too many redirects</p>", "", "CGI", kNoFetch);
 }
 
 // --- form serialization -------------------------------------------------
@@ -264,7 +326,8 @@ const LayoutBox* find_link(const LayoutBox* box, float px, float py) {
 
 }  // namespace
 
-int run_window(const std::string& target0, const std::string& cgi_program) {
+int run_window(const std::string& target0, const std::string& cgi_program,
+               int refresh_seconds) {
     bool cgi_mode = !cgi_program.empty();
     auto load_target = [&](const std::string& target) -> Page {
         return cgi_mode ? load_cgi_page(cgi_program, target) : load_file_page(target);
@@ -310,6 +373,11 @@ int run_window(const std::string& target0, const std::string& cgi_program) {
     std::vector<std::string> history{target0};  // targets visited
     size_t hindex = 0;                           // current position in history
 
+    using Clock = std::chrono::steady_clock;
+    Clock::time_point refresh_deadline;
+    int eff_refresh = 0;              // effective interval (page meta overrides CLI)
+    std::string eff_refresh_url;
+
     auto relayout = [&]() {
         root = layout_document(page.doc, page.styles, fonts, (float)width);
         doc_height = root ? root->height : 0;
@@ -341,6 +409,12 @@ int run_window(const std::string& target0, const std::string& cgi_program) {
         clamp_scroll();
         repaint();
     };
+    // A page's <meta refresh> overrides the CLI --refresh interval; arm the timer.
+    auto update_refresh = [&]() {
+        if (page.refresh > 0) { eff_refresh = page.refresh; eff_refresh_url = page.refresh_url; }
+        else { eff_refresh = refresh_seconds; eff_refresh_url.clear(); }
+        if (eff_refresh > 0) refresh_deadline = Clock::now() + std::chrono::seconds(eff_refresh);
+    };
     // Load `target` into the view (no history change). Returns success.
     auto load_into = [&](const std::string& target) -> bool {
         Page np = load_target(target);
@@ -354,6 +428,7 @@ int run_window(const std::string& target0, const std::string& cgi_program) {
         relayout();
         clamp_scroll();
         repaint();
+        update_refresh();
         return true;
     };
     auto push_history = [&](const std::string& target) {
@@ -361,7 +436,7 @@ int run_window(const std::string& target0, const std::string& cgi_program) {
         history.push_back(target);
         hindex = history.size() - 1;
     };
-    auto navigate = [&](const std::string& href) {
+    auto navigate = [&](const std::string& href, bool push = true) {
         if (href.rfind("http://", 0) == 0 || href.rfind("https://", 0) == 0) {
             std::fprintf(stderr, "htmlview: external link not followed: %s\n", href.c_str());
             return;
@@ -383,7 +458,7 @@ int run_window(const std::string& target0, const std::string& cgi_program) {
             target = (base[0] == '/') ? base : page.doc.base_dir + "/" + base;
         // load_into always renders something (the page or an error page).
         if (load_into(target)) {
-            push_history(target);
+            if (push) push_history(target);
             if (!frag.empty()) scroll_to_fragment(frag);
         }
     };
@@ -410,12 +485,23 @@ int run_window(const std::string& target0, const std::string& cgi_program) {
     };
 
     relayout();
+    update_refresh();
 
+    // Reload the current page (the refresh tick fired). Honours a meta-refresh
+    // URL if the page set one; otherwise re-requests current_target in place.
+    auto do_refresh = [&]() {
+        if (!eff_refresh_url.empty()) navigate(eff_refresh_url, /*push=*/false);
+        else load_into(current_target);
+    };
+
+    int xfd = ConnectionNumber(dpy);
     bool running = true;
     while (running) {
-        XEvent ev;
-        XNextEvent(dpy, &ev);
-        switch (ev.type) {
+        // Drain queued X events.
+        while (running && XPending(dpy)) {
+            XEvent ev;
+            XNextEvent(dpy, &ev);
+            switch (ev.type) {
             case Expose:
                 if (ev.xexpose.count == 0) repaint();
                 break;
@@ -517,8 +603,26 @@ int run_window(const std::string& target0, const std::string& cgi_program) {
                 else if (ks == XK_End) { scroll_y = doc_height; clamp_scroll(); repaint(); }
                 break;
             }
+            }  // switch (ev.type)
+        }  // drain while
+
+        // Block until the next X event or the refresh deadline.
+        fd_set rfds;
+        FD_ZERO(&rfds);
+        FD_SET(xfd, &rfds);
+        struct timeval tv, *ptv = nullptr;
+        if (eff_refresh > 0) {
+            long ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+                          refresh_deadline - Clock::now()).count();
+            if (ms < 0) ms = 0;
+            tv.tv_sec = ms / 1000;
+            tv.tv_usec = (ms % 1000) * 1000;
+            ptv = &tv;
         }
-    }
+        if (select(xfd + 1, &rfds, nullptr, nullptr, ptv) == 0 &&
+            eff_refresh > 0 && Clock::now() >= refresh_deadline)
+            do_refresh();
+    }  // while (running)
 
     XFreeCursor(dpy, hand);
     XFreePixmap(dpy, buffer);

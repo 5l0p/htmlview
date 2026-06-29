@@ -24,7 +24,14 @@ htmlview --render-to out.png <file>   # headless: rasterise to a PNG (Imlib2)
 htmlview --dump-dom   <file>          # print the parsed DOM tree
 htmlview --dump-style <file>          # print resolved computed styles
 htmlview --cgi-bin "PROGRAM" [/start] # run PROGRAM as a CGI backend (see below)
+htmlview --refresh N <file>           # reload the *current* page every N seconds
 ```
+
+External stylesheets via `<link rel=stylesheet href>` are loaded (relative to the
+document's directory, or as further requests in CGI mode). A page's
+`<meta http-equiv="refresh" content="N; url=...">` is honoured and overrides
+`--refresh`. `--refresh` always reloads whatever page is *currently* shown (so it
+follows navigation, not just the initial page).
 
 ### CGI mode
 

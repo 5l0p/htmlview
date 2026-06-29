@@ -94,12 +94,16 @@ Beyond the core model, 2.0's distinctive additions — and our gaps:
         (overlaps the CGI POST item under Next up).
   - [ ] `<isindex>` single-field search prompt.
 - [ ] **Head elements**:
-  - [ ] **`<link rel=stylesheet href>`** — load *external* CSS (today only inline
-        `<style>`); the biggest single feature here.
+  - [x] **`<link rel=stylesheet href>`** — external CSS (file dir, or CGI
+        requests); honoured by the window and the render/dump paths.
   - [ ] **`<base href>`** — resolve relative URLs/links against it.
-  - [ ] `<meta>` (charset/refresh) — currently parsed-as-void and ignored.
-- [ ] **Resource fetching** behind the above: a small loader so `href`/`src`/
-      `<link>` can pull additional files (and, in CGI mode, additional requests).
+  - [x] `<meta http-equiv=refresh>` — honoured (with optional `url=`), overrides
+        the `--refresh` CLI flag.
+  - [ ] `<meta charset>` and other `<meta>` keys.
+  - [ ] **`<isindex>`** single-field search prompt (maps a typed query to a GET
+        `?keywords` request — natural fit for CGI mode).
+- [ ] **Resource fetching** is now in place for `<link>`; extend to `<img src>`
+      in CGI mode and to `<base href>`.
 
 > Out of scope for 2.0 (arrived later, already partly done here as extras):
 > tables (HTML 3.0+ — we have a basic implementation), most presentational

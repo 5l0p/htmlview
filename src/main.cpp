@@ -33,7 +33,8 @@ bool read_file(const char* path, std::string& out) {
 int usage() {
     std::fprintf(stderr,
                  "usage: htmlview [--dump-dom] [--dump-style] [--render-to FILE.png]\n"
-                 "                [--width N] [--cgi-bin PROGRAM [START_PATH]] <file.html>\n");
+                 "                [--width N] [--refresh SECONDS]\n"
+                 "                [--cgi-bin PROGRAM [START_PATH]] <file.html>\n");
     return 2;
 }
 
@@ -45,6 +46,7 @@ int main(int argc, char** argv) {
     const char* cgi = nullptr;
     bool dump_dom = false, dump_style = false;
     int width = 800;
+    int refresh = 0;
 
     for (int i = 1; i < argc; ++i) {
         if (std::strcmp(argv[i], "--dump-dom") == 0) dump_dom = true;
@@ -52,20 +54,21 @@ int main(int argc, char** argv) {
         else if (std::strcmp(argv[i], "--render-to") == 0 && i + 1 < argc) render_to = argv[++i];
         else if (std::strcmp(argv[i], "--width") == 0 && i + 1 < argc) width = std::atoi(argv[++i]);
         else if (std::strcmp(argv[i], "--cgi-bin") == 0 && i + 1 < argc) cgi = argv[++i];
+        else if (std::strcmp(argv[i], "--refresh") == 0 && i + 1 < argc) refresh = std::atoi(argv[++i]);
         else if (argv[i][0] == '-') { std::fprintf(stderr, "unknown flag: %s\n", argv[i]); return usage(); }
         else path = argv[i];
     }
 
     // CGI mode: the initial document comes from the program, not a file.
     if (cgi)
-        return hv::run_window(path ? path : "/", cgi);
+        return hv::run_window(path ? path : "/", cgi, refresh);
 
     if (!path) return usage();
 
     // The plain window path lets run_window load the file (and show an in-window
     // error page on failure). Only the dump/render paths read it here.
     if (!dump_dom && !dump_style && !render_to)
-        return hv::run_window(path, "");
+        return hv::run_window(path, "", refresh);
 
     std::string src;
     if (!read_file(path, src)) {
@@ -89,7 +92,14 @@ int main(int argc, char** argv) {
         return 0;
     }
 
-    std::vector<hv::Rule> rules = hv::parse_css(doc.css);
+    // Honour <link rel=stylesheet> too (resolve hrefs against the file's dir).
+    auto fetch = [&](const std::string& href) -> std::string {
+        std::string p = (!href.empty() && href[0] == '/') ? href : doc.base_dir + "/" + href;
+        std::string s;
+        read_file(p.c_str(), s);
+        return s;
+    };
+    std::vector<hv::Rule> rules = hv::parse_css(hv::gather_css(doc, fetch));
     hv::StyleMap styles = hv::resolve_styles(doc, rules);
 
     if (dump_style) {
