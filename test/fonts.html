@@ -1,0 +1,16 @@
+<!DOCTYPE html>
+<html><head><title>font fallback</title>
+<style>
+  body { margin: 16px; font-size: 20px; }
+  .a { font-family: "Totally Missing Font", "Another Missing One", monospace; }
+  .b { font-family: "No Such Face", serif; }
+  .c { font-family: sans-serif; }
+  .d { font-family: "DejaVu Serif", Georgia, serif; font-style: italic; }
+  p { margin: 6px 0; }
+</style></head>
+<body>
+  <p class="a">A: missing, missing, monospace &rarr; should be MONOSPACE.</p>
+  <p class="b">B: missing, serif &rarr; should be a serif face.</p>
+  <p class="c">C: sans-serif &rarr; should be sans.</p>
+  <p class="d">D: DejaVu Serif / Georgia / serif, italic.</p>
+</body></html>

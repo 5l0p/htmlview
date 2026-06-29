@@ -12,6 +12,7 @@ Roadmap for `htmlview`. Roughly ordered by value for the app-specific use case.
       hitch on large pages.
 
 ## Done
+- [x] `font-family` fallback list (fontconfig picks first available).
 - [x] Basic forms: text inputs, checkboxes, buttons (focus, keyboard entry,
       click dispatch); textarea + select render statically.
 - [x] Back/forward history (Alt+Left/Right, Backspace).
@@ -31,7 +32,7 @@ Roadmap for `htmlview`. Roughly ordered by value for the app-specific use case.
 - [ ] Inline `vertical-align` (baseline/middle/top) for images and mixed fonts.
 
 ## CSS coverage
-- [ ] `font` shorthand; `font-family` fallback list (try each family in order).
+- [ ] `font` shorthand.
 - [ ] `border-radius`, `border-style` rendering (only solid is drawn now).
 - [ ] `background-image` (Imlib2 tiling) and `background` shorthand parsing.
 - [ ] Child / sibling combinators (`>`, `+`, `~`) and attribute selectors.

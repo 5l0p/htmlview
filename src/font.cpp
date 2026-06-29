@@ -1,6 +1,9 @@
 #include "font.h"
 
 #include <X11/Xft/Xft.h>
+#include <fontconfig/fontconfig.h>
+
+#include <sstream>
 
 namespace hv {
 
@@ -22,18 +25,37 @@ XftFont* FontCache::get(const std::string& family, float px, FontWeight w, FontS
     auto it = cache_.find(key);
     if (it != cache_.end()) return it->second;
 
-    int weight = (w == FontWeight::Bold) ? XFT_WEIGHT_BOLD : XFT_WEIGHT_MEDIUM;
-    int slant = (st == FontStyle::Italic) ? XFT_SLANT_ITALIC : XFT_SLANT_ROMAN;
+    int weight = (w == FontWeight::Bold) ? FC_WEIGHT_BOLD : FC_WEIGHT_MEDIUM;
+    int slant = (st == FontStyle::Italic) ? FC_SLANT_ITALIC : FC_SLANT_ROMAN;
 
-    XftFont* f = XftFontOpen(dpy_, screen_,
-                             XFT_FAMILY, XftTypeString, family.c_str(),
-                             XFT_PIXEL_SIZE, XftTypeDouble, (double)px,
-                             XFT_WEIGHT, XftTypeInteger, weight,
-                             XFT_SLANT, XftTypeInteger, slant,
-                             nullptr);
-    if (!f)  // last-ditch fallback
+    // Build a pattern with every requested family, in priority order, so
+    // fontconfig picks the first one actually installed (then its own fallback).
+    FcPattern* pat = FcPatternCreate();
+    std::stringstream ss(family);
+    std::string fam;
+    bool any = false;
+    while (std::getline(ss, fam, ',')) {
+        if (fam.empty()) continue;
+        FcPatternAddString(pat, FC_FAMILY, (const FcChar8*)fam.c_str());
+        any = true;
+    }
+    if (!any) FcPatternAddString(pat, FC_FAMILY, (const FcChar8*)"sans");
+    FcPatternAddDouble(pat, FC_PIXEL_SIZE, (double)px);
+    FcPatternAddInteger(pat, FC_WEIGHT, weight);
+    FcPatternAddInteger(pat, FC_SLANT, slant);
+
+    FcConfigSubstitute(nullptr, pat, FcMatchPattern);
+    XftDefaultSubstitute(dpy_, screen_, pat);
+    FcResult res;
+    FcPattern* match = FcFontMatch(nullptr, pat, &res);
+    FcPatternDestroy(pat);
+
+    XftFont* f = match ? XftFontOpenPattern(dpy_, match) : nullptr;
+    if (!f) {  // last-ditch fallback
+        if (match) FcPatternDestroy(match);
         f = XftFontOpen(dpy_, screen_, XFT_FAMILY, XftTypeString, "sans",
                         XFT_PIXEL_SIZE, XftTypeDouble, (double)px, nullptr);
+    }
     cache_[key] = f;
     return f;
 }

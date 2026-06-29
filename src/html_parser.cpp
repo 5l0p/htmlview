@@ -275,6 +275,11 @@ private:
         if (e == "hellip") return "\xe2\x80\xa6";
         if (e == "laquo") return "\xc2\xab";
         if (e == "raquo") return "\xc2\xbb";
+        if (e == "larr") return "\xe2\x86\x90";
+        if (e == "uarr") return "\xe2\x86\x91";
+        if (e == "rarr") return "\xe2\x86\x92";
+        if (e == "darr") return "\xe2\x86\x93";
+        if (e == "harr") return "\xe2\x86\x94";
         return "";
     }
 

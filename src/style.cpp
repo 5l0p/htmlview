@@ -148,11 +148,20 @@ void apply_decl(ComputedStyle& s, const Declaration& d) {
     } else if (p == "background-color" || p == "background") {
         RGBA c; if (parse_color(v, c)) s.background_color = c;
     } else if (p == "font-family") {
-        // take first family, strip quotes
-        std::string fam = trim(v.substr(0, v.find(',')));
-        if (!fam.empty() && (fam.front() == '"' || fam.front() == '\''))
-            fam = fam.substr(1, fam.size() - 2);
-        s.font_family = fam;
+        // Keep the whole prioritised list (quotes stripped, comma-separated);
+        // the font cache feeds it to fontconfig for first-available fallback.
+        std::string cleaned;
+        std::stringstream ss(v);
+        std::string fam;
+        while (std::getline(ss, fam, ',')) {
+            fam = trim(fam);
+            if (!fam.empty() && (fam.front() == '"' || fam.front() == '\'') && fam.size() >= 2)
+                fam = fam.substr(1, fam.size() - 2);
+            if (fam.empty()) continue;
+            if (!cleaned.empty()) cleaned += ",";
+            cleaned += fam;
+        }
+        if (!cleaned.empty()) s.font_family = cleaned;
     } else if (p == "font-size") {
         float f; if (parse_length_px(v, em, f)) s.font_size = f;
     } else if (p == "font-weight") {
