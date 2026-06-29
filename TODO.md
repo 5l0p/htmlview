@@ -6,12 +6,12 @@ Roadmap for `htmlview`. Roughly ordered by value for the app-specific use case.
 - [ ] **Basic forms** (the planned phase 2): `input` (text/checkbox/button),
       focus management, keyboard entry, click dispatch. Link hit-testing +
       navigation already exist to build on.
-- [ ] **Back/forward history** for navigation.
 - [ ] **Paint-only hover recolour** — `:hover` currently re-resolves + relays
       out on link enter/leave; a recolor-without-relayout path would remove the
       hitch on large pages.
 
 ## Done
+- [x] Back/forward history (Alt+Left/Right, Backspace).
 - [x] `:hover` pseudo-class (re-resolve + repaint on link enter/leave).
       `:visited` intentionally unsupported (no history).
 - [x] Adjacent-sibling vertical margin collapsing.

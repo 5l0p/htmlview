@@ -117,6 +117,9 @@ int run_window(const std::string& path) {
     float scroll_y = 0, doc_height = 0;
     const Element* hovered = nullptr;
 
+    std::vector<std::string> history{path};  // resolved paths visited
+    size_t hindex = 0;                        // current position in history
+
     auto relayout = [&]() {
         root = layout_document(page.doc, page.styles, fonts, (float)width);
         doc_height = root ? root->height : 0;
@@ -136,6 +139,19 @@ int run_window(const std::string& path) {
         float max_scroll = std::max(0.0f, doc_height - height);
         scroll_y = std::clamp(scroll_y, 0.0f, max_scroll);
     };
+    // Load `target` into the view (no history change). Returns success.
+    auto load_into = [&](const std::string& target) -> bool {
+        Page np = load_page(target);
+        if (!np.ok) return false;
+        page = std::move(np);
+        XStoreName(dpy, win, page.title.c_str());
+        scroll_y = 0;
+        hovered = nullptr;
+        relayout();
+        clamp_scroll();
+        repaint();
+        return true;
+    };
     auto navigate = [&](const std::string& href) {
         if (href.rfind("http://", 0) == 0 || href.rfind("https://", 0) == 0) {
             std::fprintf(stderr, "htmlview: external link not followed: %s\n", href.c_str());
@@ -146,15 +162,15 @@ int run_window(const std::string& path) {
             std::fprintf(stderr, "htmlview: link target not found: %s\n", target.c_str());
             return;
         }
-        Page np = load_page(target);
-        if (!np.ok) return;
-        page = std::move(np);
-        XStoreName(dpy, win, page.title.c_str());
-        scroll_y = 0;
-        hovered = nullptr;
-        relayout();
-        clamp_scroll();
-        repaint();
+        if (!load_into(target)) return;
+        history.resize(hindex + 1);  // drop any forward history
+        history.push_back(target);
+        hindex = history.size() - 1;
+    };
+    auto go = [&](int delta) {
+        long ni = (long)hindex + delta;
+        if (ni < 0 || ni >= (long)history.size()) return;
+        if (load_into(history[ni])) hindex = (size_t)ni;
     };
 
     relayout();
@@ -206,7 +222,12 @@ int run_window(const std::string& path) {
                 break;
             case KeyPress: {
                 KeySym ks = XLookupKeysym(&ev.xkey, 0);
+                bool alt = ev.xkey.state & Mod1Mask;
+                bool shift = ev.xkey.state & ShiftMask;
                 if (ks == XK_q || ks == XK_Escape) running = false;
+                else if (alt && ks == XK_Left) go(-1);    // back
+                else if (alt && ks == XK_Right) go(+1);   // forward
+                else if (ks == XK_BackSpace) go(shift ? +1 : -1);
                 else if (ks == XK_Down) { scroll_y += 48; clamp_scroll(); repaint(); }
                 else if (ks == XK_Up) { scroll_y -= 48; clamp_scroll(); repaint(); }
                 else if (ks == XK_Page_Down) { scroll_y += height - 40; clamp_scroll(); repaint(); }

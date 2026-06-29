@@ -26,6 +26,7 @@ htmlview --dump-style <file>          # print resolved computed styles
 ```
 
 Window keys: arrows / PageUp / PageDown / Home / End and the mouse wheel scroll;
+`Alt+Left` / `Alt+Right` (or `Backspace` / `Shift+Backspace`) go back / forward;
 `q` / `Esc` quit. Clicking a link to a **local** file navigates to it (the
 pointer shows a hand cursor over links); external `http(s)` links are not followed.
 
