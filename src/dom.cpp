@@ -25,6 +25,9 @@ Tag tag_from_name(const std::string& name) {
         {"ul", Tag::Ul}, {"ol", Tag::Ol}, {"li", Tag::Li},
         {"b", Tag::B}, {"i", Tag::I}, {"em", Tag::Em}, {"strong", Tag::Strong},
         {"table", Tag::Table}, {"tr", Tag::Tr}, {"td", Tag::Td}, {"th", Tag::Th},
+        {"form", Tag::Form}, {"input", Tag::Input}, {"button", Tag::Button},
+        {"label", Tag::Label}, {"textarea", Tag::Textarea},
+        {"select", Tag::Select}, {"option", Tag::Option},
     };
     auto it = m.find(to_lower(name));
     return it == m.end() ? Tag::Unknown : it->second;
@@ -45,12 +48,16 @@ const char* tag_name(Tag t) {
         case Tag::Em: return "em"; case Tag::Strong: return "strong";
         case Tag::Table: return "table"; case Tag::Tr: return "tr";
         case Tag::Td: return "td"; case Tag::Th: return "th";
+        case Tag::Form: return "form"; case Tag::Input: return "input";
+        case Tag::Button: return "button"; case Tag::Label: return "label";
+        case Tag::Textarea: return "textarea"; case Tag::Select: return "select";
+        case Tag::Option: return "option";
         case Tag::Unknown: default: return "?";
     }
 }
 
 bool is_void_tag(Tag t) {
-    return t == Tag::Br || t == Tag::Hr || t == Tag::Img;
+    return t == Tag::Br || t == Tag::Hr || t == Tag::Img || t == Tag::Input;
 }
 
 void dump_dom(const Node* node, std::string& out, int indent) {

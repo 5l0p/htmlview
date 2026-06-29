@@ -265,6 +265,11 @@ ComputedStyle ua_defaults(const Element& e, const ComputedStyle& parent) {
             s.display = DisplayType::TableCell; s.padding = {2, 2, 2, 2};
             s.font_weight = FontWeight::Bold; s.text_align = TextAlign::Center; break;
         case Tag::Title: case Tag::Style: s.display = DisplayType::NoDisplay; break;
+        case Tag::Form: block(); s.margin = {0, 0, 8, 0}; break;
+        case Tag::Option: s.display = DisplayType::NoDisplay; break;  // not rendered inline
+        // Form controls render as inline replaced widgets (see layout/paint).
+        case Tag::Input: case Tag::Button: case Tag::Textarea:
+        case Tag::Select: case Tag::Label: break;
         case Tag::Span: case Tag::Br: case Tag::Img: break;  // inline
         default: break;
     }

@@ -51,7 +51,9 @@ CSS  ─▶ css ─▶ rules ───────┴▶ style (cascade) ─▶ 
 ## Supported subset
 
 - **Elements:** `html head body title style`, `h1`–`h6`, `p div span pre br hr`,
-  `a img`, `ul ol li`, `b i em strong`, `table tr td th`.
+  `a img`, `ul ol li`, `b i em strong`, `table tr td th`, and form controls
+  `form input button textarea select` (text inputs, checkboxes, buttons are
+  interactive; select is a static box; radios render as checkboxes).
 - **CSS properties:** `display`, `color`, `background-color`, `font-family/size/weight/style`,
   `text-align`, `text-decoration`, `list-style-type`, `margin*`, `padding*`,
   `border` + per-side `border-top/right/bottom/left` (solid), `width`, `height`.

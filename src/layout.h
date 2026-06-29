@@ -12,6 +12,7 @@
 
 #include <memory>
 #include <string>
+#include <unordered_map>
 #include <vector>
 
 #include "font.h"
@@ -19,11 +20,23 @@
 
 namespace hv {
 
+// Interactive form controls. Mutable per-control state (text, checked) lives in
+// a FormState map keyed by the source Element, so it survives relayout.
+enum class WidgetKind { NoWidget, TextInput, Checkbox, Button, Select };
+
+struct WidgetState {
+    std::string text;       // text-input contents
+    bool checked = false;   // checkbox state
+};
+using FormState = std::unordered_map<const Element*, WidgetState>;
+
 struct LayoutBox {
-    enum class Kind { Block, Anonymous, TextRun, Image, Marker, Table, TableRow, TableCell };
+    enum class Kind { Block, Anonymous, TextRun, Image, Marker, Widget,
+                      Table, TableRow, TableCell };
     Kind kind = Kind::Block;
 
     ListStyle marker = ListStyle::NoMarker;  // for Kind::Marker shape bullets
+    WidgetKind widget = WidgetKind::NoWidget;    // for Kind::Widget controls
 
     const Element* element = nullptr;     // source element (may be null for anon/text)
     const ComputedStyle* style = nullptr; // style to paint with

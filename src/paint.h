@@ -13,6 +13,14 @@
 
 namespace hv {
 
+// Current form interaction state, supplied to the painter so it can draw
+// control values, checkbox ticks, and the focused text caret.
+struct FormView {
+    const FormState* state = nullptr;
+    const Element* focused = nullptr;
+    bool caret = false;
+};
+
 class Painter {
 public:
     Painter(Display* dpy, Drawable target, Visual* visual, Colormap cmap, FontCache& fonts);
@@ -21,11 +29,13 @@ public:
     // Clear the whole target to white, then paint the tree translated by
     // (-scroll_x, -scroll_y) so callers can implement scrolling.
     void paint(const LayoutBox* root, int width, int height,
-               float scroll_x = 0, float scroll_y = 0);
+               float scroll_x = 0, float scroll_y = 0, const FormView& form = {});
 
 private:
     void fill_rect(float x, float y, float w, float h, const RGBA& c);
+    void stroke_rect(float x, float y, float w, float h, const RGBA& c);
     void paint_box(const LayoutBox* box, float ox, float oy);
+    void paint_widget(const LayoutBox* box, float x, float y);
     XftColor* xft_color(const RGBA& c);
 
     Display* dpy_;
@@ -37,6 +47,7 @@ private:
     XftDraw* xft_;
     GC gc_;
     std::map<uint32_t, XftColor> color_cache_;
+    const FormView* form_ = nullptr;  // valid only during paint()
 };
 
 }  // namespace hv

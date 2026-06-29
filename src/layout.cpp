@@ -41,15 +41,108 @@ const Element* find_body(const Element* root) {
 // --- Inline fragments ---------------------------------------------------
 
 struct Frag {
-    enum Type { Word, Space, Break, Image } type;
+    enum Type { Word, Space, Break, Image, Widget } type;
     std::string text;
     const ComputedStyle* style = nullptr;
     XftFont* font = nullptr;
     std::string href;
     const Element* element = nullptr;  // source element (for hover/hit-testing)
     std::string img_path;       // Image only
-    float img_w = 0, img_h = 0;  // Image only
+    float img_w = 0, img_h = 0;  // Image / Widget intrinsic size
+    WidgetKind widget = WidgetKind::NoWidget;  // Widget only (label is in `text`)
 };
+
+// Concatenate descendant text (used for a <button>'s label).
+std::string text_content(const Node* n) {
+    if (n->is_text()) return static_cast<const Text*>(n)->data;
+    std::string out;
+    for (const auto& c : static_cast<const Element*>(n)->children)
+        out += text_content(c.get());
+    return out;
+}
+
+std::string trimmed(const std::string& s) {
+    size_t a = s.find_first_not_of(" \t\r\n");
+    size_t b = s.find_last_not_of(" \t\r\n");
+    return a == std::string::npos ? "" : s.substr(a, b - a + 1);
+}
+
+// Build a widget fragment for a form control; returns false if not a control
+// (or a hidden one). Intrinsic size goes in img_w/img_h, the label in text.
+bool widget_frag(const Element* e, const ComputedStyle& st, FontCache& fonts, Frag& f) {
+    XftFont* font = fonts.get(st);
+    float line_h = (float)(font->ascent + font->descent);
+    float charw = (float)fonts.measure(font, "0");
+    f.type = Frag::Widget;
+    f.style = &st;
+    f.font = font;
+    f.element = e;
+
+    auto attr = [&](const char* k) -> std::string {
+        const std::string* v = e->attr(k);
+        return v ? *v : std::string();
+    };
+
+    if (e->tag == Tag::Input) {
+        std::string type = attr("type");
+        std::transform(type.begin(), type.end(), type.begin(),
+                       [](unsigned char c) { return (char)std::tolower(c); });
+        if (type == "hidden") return false;
+        if (type == "checkbox" || type == "radio") {
+            f.widget = WidgetKind::Checkbox;
+            f.img_w = f.img_h = 13;
+            return true;
+        }
+        if (type == "button" || type == "submit" || type == "reset") {
+            f.widget = WidgetKind::Button;
+            std::string label = attr("value");
+            if (label.empty())
+                label = type == "submit" ? "Submit" : type == "reset" ? "Reset" : "Button";
+            f.text = label;
+            f.img_w = (float)fonts.measure(font, label) + 16;
+            f.img_h = line_h + 8;
+            return true;
+        }
+        // text-like input
+        f.widget = WidgetKind::TextInput;
+        int size = 20;
+        if (const std::string* s = e->attr("size")) { int v = std::atoi(s->c_str()); if (v > 0) size = v; }
+        f.img_w = size * charw + 8;
+        f.img_h = line_h + 6;
+        return true;
+    }
+    if (e->tag == Tag::Button) {
+        f.widget = WidgetKind::Button;
+        f.text = trimmed(text_content(e));
+        if (f.text.empty()) f.text = "Button";
+        f.img_w = (float)fonts.measure(font, f.text) + 16;
+        f.img_h = line_h + 8;
+        return true;
+    }
+    if (e->tag == Tag::Textarea) {
+        f.widget = WidgetKind::TextInput;
+        int cols = 20, rows = 3;
+        if (const std::string* s = e->attr("cols")) { int v = std::atoi(s->c_str()); if (v > 0) cols = v; }
+        if (const std::string* s = e->attr("rows")) { int v = std::atoi(s->c_str()); if (v > 0) rows = v; }
+        f.img_w = cols * charw + 8;
+        f.img_h = rows * line_h + 6;
+        return true;
+    }
+    if (e->tag == Tag::Select) {
+        f.widget = WidgetKind::Select;  // static box w/ drawn arrow (no dropdown yet)
+        std::string label;
+        for (const auto& c : e->children)
+            if (c->is_element() && static_cast<const Element*>(c.get())->tag == Tag::Option) {
+                label = trimmed(text_content(c.get()));
+                break;
+            }
+        f.text = label;
+        f.img_w = (float)fonts.measure(font, label) + 28;  // room for the arrow
+        f.img_h = line_h + 8;
+        return true;
+    }
+    return false;
+}
 
 std::string resolve_path(const std::string& base_dir, const std::string& src) {
     if (src.empty() || src[0] == '/') return src;
@@ -125,6 +218,12 @@ void collect_inline(const StyleMap& sm, FontCache& fonts, const std::string& bas
     const auto* e = static_cast<const Element*>(node);
     const ComputedStyle& est = style_of(sm, e);
     if (est.display == DisplayType::NoDisplay) return;
+    if (e->tag == Tag::Input || e->tag == Tag::Button || e->tag == Tag::Textarea ||
+        e->tag == Tag::Select) {
+        Frag f;
+        if (widget_frag(e, est, fonts, f)) out.push_back(std::move(f));
+        return;  // controls don't recurse into their children for inline flow
+    }
     if (e->tag == Tag::Br) {
         out.push_back(text_frag(Frag::Break, "", &est, fonts.get(est), href, e));
         return;
@@ -166,6 +265,7 @@ float layout_inline(FontCache& fonts, const std::vector<Frag>& frags, LayoutBox*
     struct Run {
         float xrel, width, asc, desc;
         bool image = false;
+        WidgetKind widget = WidgetKind::NoWidget;
         std::string text;
         XftFont* font = nullptr;
         RGBA color;
@@ -204,6 +304,12 @@ float layout_inline(FontCache& fonts, const std::vector<Frag>& frags, LayoutBox*
             if (r.image) {
                 box->kind = LayoutBox::Kind::Image;
                 box->img_src = r.img_path;
+            } else if (r.widget != WidgetKind::NoWidget) {
+                box->kind = LayoutBox::Kind::Widget;
+                box->widget = r.widget;
+                box->text = r.text;   // button label
+                box->font = r.font;
+                box->color = r.color;
             } else {
                 box->kind = LayoutBox::Kind::TextRun;
                 box->text = r.text;
@@ -228,6 +334,10 @@ float layout_inline(FontCache& fonts, const std::vector<Frag>& frags, LayoutBox*
         if (f.type == Frag::Image) {
             w = f.img_w; asc = f.img_h; desc = 0;
             r.image = true; r.img_path = f.img_path;
+        } else if (f.type == Frag::Widget) {
+            w = f.img_w; asc = f.img_h; desc = 0;
+            r.widget = f.widget; r.text = f.text; r.font = f.font;
+            r.color = f.style->color;
         } else {  // Word
             w = (float)fonts.measure(f.font, f.text);
             asc = (float)f.font->ascent; desc = (float)f.font->descent;

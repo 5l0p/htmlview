@@ -31,10 +31,49 @@ struct Page {
     Document doc;
     std::vector<Rule> rules;
     StyleMap styles;
+    FormState form;         // mutable control state, keyed by Element
     std::string title;
     bool has_hover = false;  // stylesheet uses :hover -> track pointer for restyle
     bool ok = false;
 };
+
+std::string node_text(const Node* n) {
+    if (n->is_text()) return static_cast<const Text*>(n)->data;
+    std::string out;
+    for (const auto& c : static_cast<const Element*>(n)->children) out += node_text(c.get());
+    return out;
+}
+
+void init_form_state(const Node* n, FormState& fs) {
+    if (n->is_element()) {
+        const auto* e = static_cast<const Element*>(n);
+        if (e->tag == Tag::Input) {
+            std::string type = e->attr("type") ? *e->attr("type") : "text";
+            std::transform(type.begin(), type.end(), type.begin(),
+                           [](unsigned char c) { return (char)std::tolower(c); });
+            if (type == "checkbox" || type == "radio")
+                fs[e].checked = e->attr("checked") != nullptr;
+            else if (type != "button" && type != "submit" && type != "reset" && type != "hidden")
+                fs[e].text = e->attr("value") ? *e->attr("value") : "";
+        } else if (e->tag == Tag::Textarea) {
+            std::string t = node_text(e);
+            size_t a = t.find_first_not_of(" \t\r\n");
+            fs[e].text = (a == std::string::npos) ? "" : t.substr(a);
+        }
+        for (const auto& c : e->children) init_form_state(c.get(), fs);
+    }
+}
+
+// Deepest widget box under (px,py) in document coords.
+const LayoutBox* find_widget(const LayoutBox* box, float px, float py) {
+    const LayoutBox* found = nullptr;
+    if (box->widget != WidgetKind::NoWidget && px >= box->x && px < box->x + box->width &&
+        py >= box->y && py < box->y + box->height)
+        found = box;
+    for (const auto& c : box->children)
+        if (const LayoutBox* r = find_widget(c.get(), px, py)) found = r;
+    return found;
+}
 
 bool read_file(const std::string& path, std::string& out) {
     std::ifstream f(path, std::ios::binary);
@@ -58,6 +97,7 @@ Page load_page(const std::string& path) {
     pg.rules = parse_css(pg.doc.css);
     pg.has_hover = stylesheet_has_hover(pg.rules);
     pg.styles = resolve_styles(pg.doc, pg.rules);
+    init_form_state(pg.doc.root.get(), pg.form);
     pg.title = pg.doc.title.empty() ? path : pg.doc.title;
     pg.ok = true;
     return pg;
@@ -116,6 +156,7 @@ int run_window(const std::string& path) {
     std::unique_ptr<LayoutBox> root;
     float scroll_y = 0, doc_height = 0;
     const Element* hovered = nullptr;
+    const Element* focused = nullptr;  // focused text-input element
 
     std::vector<std::string> history{path};  // resolved paths visited
     size_t hindex = 0;                        // current position in history
@@ -132,7 +173,8 @@ int run_window(const std::string& path) {
     };
     auto repaint = [&]() {
         Painter p(dpy, buffer, visual, cmap, fonts);
-        p.paint(root.get(), width, height, 0, scroll_y);
+        FormView fv{&page.form, focused, focused != nullptr};
+        p.paint(root.get(), width, height, 0, scroll_y, fv);
         XCopyArea(dpy, buffer, win, gc, 0, 0, width, height, 0, 0);
     };
     auto clamp_scroll = [&]() {
@@ -147,6 +189,7 @@ int run_window(const std::string& path) {
         XStoreName(dpy, win, page.title.c_str());
         scroll_y = 0;
         hovered = nullptr;
+        focused = nullptr;
         relayout();
         clamp_scroll();
         repaint();
@@ -215,12 +258,48 @@ int run_window(const std::string& path) {
                 if (ev.xbutton.button == 4) { scroll_y -= 48; clamp_scroll(); repaint(); }
                 else if (ev.xbutton.button == 5) { scroll_y += 48; clamp_scroll(); repaint(); }
                 else if (ev.xbutton.button == 1 && root) {
-                    if (const LayoutBox* link = find_link(root.get(), ev.xbutton.x,
-                                                          ev.xbutton.y + scroll_y))
+                    float dx = ev.xbutton.x, dy = ev.xbutton.y + scroll_y;
+                    const LayoutBox* w = find_widget(root.get(), dx, dy);
+                    const Element* prev_focus = focused;
+                    focused = nullptr;
+                    if (w) {
+                        switch (w->widget) {
+                            case WidgetKind::TextInput: focused = w->element; break;
+                            case WidgetKind::Checkbox:
+                                page.form[w->element].checked = !page.form[w->element].checked;
+                                break;
+                            case WidgetKind::Button:
+                                std::fprintf(stderr, "htmlview: button activated: %s\n",
+                                             w->text.c_str());
+                                break;
+                            default: break;
+                        }
+                        repaint();
+                    } else if (const LayoutBox* link = find_link(root.get(), dx, dy)) {
                         navigate(link->href);
+                    } else if (prev_focus) {
+                        repaint();  // clicked away: clear focus
+                    }
                 }
                 break;
             case KeyPress: {
+                // When a text field is focused, route typing into it.
+                if (focused) {
+                    char buf[32];
+                    KeySym ks2;
+                    int n = XLookupString(&ev.xkey, buf, sizeof buf, &ks2, nullptr);
+                    std::string& text = page.form[focused].text;
+                    if (ks2 == XK_Escape || ks2 == XK_Return || ks2 == XK_KP_Enter) {
+                        focused = nullptr; repaint();
+                    } else if (ks2 == XK_BackSpace) {
+                        if (!text.empty()) text.pop_back();
+                        repaint();
+                    } else if (n > 0 && (unsigned char)buf[0] >= 0x20 && buf[0] != 0x7f) {
+                        text.append(buf, n);
+                        repaint();
+                    }
+                    break;
+                }
                 KeySym ks = XLookupKeysym(&ev.xkey, 0);
                 bool alt = ev.xkey.state & Mod1Mask;
                 bool shift = ev.xkey.state & ShiftMask;
@@ -266,10 +345,14 @@ int render_to_png(const Document& doc, const StyleMap& styles, int width,
     auto root = layout_document(doc, styles, fonts, (float)width);
     int height = std::max(1, (int)std::ceil(root ? root->height : 1));
 
+    FormState form;
+    init_form_state(doc.root.get(), form);
+    FormView fv{&form, nullptr, false};
+
     Pixmap buffer = XCreatePixmap(dpy, RootWindow(dpy, screen), width, height, depth);
     {
         Painter p(dpy, buffer, visual, cmap, fonts);
-        p.paint(root.get(), width, height, 0, 0);
+        p.paint(root.get(), width, height, 0, 0, fv);
     }
     XSync(dpy, False);
 
