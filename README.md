@@ -33,6 +33,10 @@ htmlview --cgi-bin "PROGRAM" [/start] # run PROGRAM as a CGI backend (see below)
 htmlview --refresh N <file>           # reload the *current* page every N seconds
 ```
 
+The headless flags (`--render-to` / `--dump-dom` / `--dump-style`) compose with
+`--cgi-bin` — they act on the CGI program's response for the start path, e.g.
+`htmlview --render-to out.png --cgi-bin "python3 app.cgi" /home`.
+
 External stylesheets via `<link rel=stylesheet href>` are loaded (relative to the
 document's directory, or as further requests in CGI mode). A page's
 `<meta http-equiv="refresh" content="N; url=...">` is honoured and overrides

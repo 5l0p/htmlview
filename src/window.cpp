@@ -907,8 +907,9 @@ int run_window(const std::string& target0, const std::string& cgi_program,
     return 0;
 }
 
-int render_to_png(const Document& doc, const StyleMap& styles, int width,
-                  const std::string& path) {
+// Rasterise a fully-loaded page to a PNG. Shares the file/CGI loaders so it
+// works in both modes.
+int render_page_png(const Page& page, int width, const std::string& path) {
     Display* dpy = XOpenDisplay(nullptr);
     if (!dpy) { std::fprintf(stderr, "htmlview: cannot open X display\n"); return 1; }
 
@@ -922,14 +923,10 @@ int render_to_png(const Document& doc, const StyleMap& styles, int width,
     imlib_context_set_colormap(cmap);
 
     FontCache fonts(dpy, screen);
-    ResolveImg resolve_image = make_image_resolver(
-        doc.base_dir, "", std::make_shared<std::map<std::string, std::string>>());
-    auto root = layout_document(doc, styles, fonts, (float)width, resolve_image);
+    auto root = layout_document(page.doc, page.styles, fonts, (float)width, page.resolve_image);
     int height = std::max(1, (int)std::ceil(root ? root->height : 1));
 
-    FormState form;
-    init_form_state(doc.root.get(), form);
-    FormView fv{&form, nullptr, false};
+    FormView fv{&page.form, nullptr, false};
 
     Pixmap buffer = XCreatePixmap(dpy, RootWindow(dpy, screen), width, height, depth);
     {
@@ -956,6 +953,29 @@ int render_to_png(const Document& doc, const StyleMap& styles, int width,
     fonts.clear();  // close fonts before the Display does
     XCloseDisplay(dpy);
     return 0;
+}
+
+int run_headless(const std::string& target, const std::string& cgi_program, int width,
+                 const std::string& render_to, bool want_dom, bool want_style) {
+    Page page = cgi_program.empty() ? load_file_page(target)
+                                    : load_cgi_page(cgi_program, target);
+    if (!page.ok) return 1;
+
+    if (want_dom) {
+        std::string out;
+        dump_dom(page.doc.root.get(), out);
+        std::fputs(out.c_str(), stdout);
+        std::printf("--- title: \"%s\"\n", page.title.c_str());
+        return 0;
+    }
+    if (want_style) {
+        std::printf("--- %zu CSS rules parsed\n", page.rules.size());
+        std::string out;
+        dump_styles(page.doc.root.get(), page.styles, out);
+        std::fputs(out.c_str(), stdout);
+        return 0;
+    }
+    return render_page_png(page, width, render_to);
 }
 
 }  // namespace hv

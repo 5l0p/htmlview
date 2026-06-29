@@ -1,40 +1,28 @@
 // htmlview — app-specific X11/Xft/XRender/Imlib2 HTML renderer.
 //
 // Usage:
-//   htmlview <file.html>            open a window and render
-//   htmlview --dump-dom <file>      print the parsed DOM tree and exit
+//   htmlview <file.html>                 open a window and render
+//   htmlview --render-to out.png <file>  headless: rasterise to a PNG
+//   htmlview --dump-dom / --dump-style   print the DOM / computed styles
+//   htmlview --cgi-bin "PROG" [/start]   render a CGI backend's output
 //
-// More flags (--dump-style, --render-to) arrive with later milestones.
+// The headless flags (--render-to / --dump-*) compose with --cgi-bin: they act
+// on the CGI program's response instead of a file.
 
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
-#include <fstream>
-#include <sstream>
 #include <string>
 
-#include "css.h"
-#include "dom.h"
-#include "html_parser.h"
-#include "style.h"
 #include "view.h"
 
 namespace {
-
-bool read_file(const char* path, std::string& out) {
-    std::ifstream f(path, std::ios::binary);
-    if (!f) return false;
-    std::ostringstream ss;
-    ss << f.rdbuf();
-    out = ss.str();
-    return true;
-}
 
 int usage() {
     std::fprintf(stderr,
                  "usage: htmlview [--dump-dom] [--dump-style] [--render-to FILE.png]\n"
                  "                [--width N] [--refresh SECONDS]\n"
-                 "                [--cgi-bin PROGRAM [START_PATH]] <file.html>\n");
+                 "                [--cgi-bin PROGRAM] [PATH | START_PATH]\n");
     return 2;
 }
 
@@ -59,56 +47,18 @@ int main(int argc, char** argv) {
         else path = argv[i];
     }
 
-    // CGI mode: the initial document comes from the program, not a file.
-    if (cgi)
-        return hv::run_window(path ? path : "/", cgi, refresh);
+    bool headless = dump_dom || dump_style || render_to;
 
+    if (headless) {
+        // File mode needs a path; CGI mode defaults the start path to "/".
+        if (!cgi && !path) return usage();
+        std::string target = path ? path : "/";
+        return hv::run_headless(target, cgi ? cgi : "", width,
+                                render_to ? render_to : "", dump_dom, dump_style);
+    }
+
+    // Live window: CGI start path defaults to "/", file mode requires a path.
+    if (cgi) return hv::run_window(path ? path : "/", cgi, refresh);
     if (!path) return usage();
-
-    // The plain window path lets run_window load the file (and show an in-window
-    // error page on failure). Only the dump/render paths read it here.
-    if (!dump_dom && !dump_style && !render_to)
-        return hv::run_window(path, "", refresh);
-
-    std::string src;
-    if (!read_file(path, src)) {
-        std::fprintf(stderr, "htmlview: cannot read %s\n", path);
-        return 1;
-    }
-
-    hv::Document doc = hv::parse_html(src);
-    {
-        std::string p = path;
-        size_t slash = p.find_last_of('/');
-        doc.base_dir = (slash == std::string::npos) ? "." : p.substr(0, slash);
-    }
-
-    if (dump_dom) {
-        std::string out;
-        hv::dump_dom(doc.root.get(), out);
-        std::fputs(out.c_str(), stdout);
-        std::printf("--- title: \"%s\"\n", doc.title.c_str());
-        std::printf("--- css: %zu bytes\n", doc.css.size());
-        return 0;
-    }
-
-    // Honour <link rel=stylesheet> too (resolve hrefs against the file's dir).
-    auto fetch = [&](const std::string& href) -> std::string {
-        std::string p = (!href.empty() && href[0] == '/') ? href : doc.base_dir + "/" + href;
-        std::string s;
-        read_file(p.c_str(), s);
-        return s;
-    };
-    std::vector<hv::Rule> rules = hv::parse_css(hv::gather_css(doc, fetch));
-    hv::StyleMap styles = hv::resolve_styles(doc, rules);
-
-    if (dump_style) {
-        std::printf("--- %zu CSS rules parsed\n", rules.size());
-        std::string out;
-        hv::dump_styles(doc.root.get(), styles, out);
-        std::fputs(out.c_str(), stdout);
-        return 0;
-    }
-
-    return hv::render_to_png(doc, styles, width, render_to);
+    return hv::run_window(path, "", refresh);
 }

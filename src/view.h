@@ -17,8 +17,10 @@ namespace hv {
 int run_window(const std::string& target0, const std::string& cgi_program = "",
                int refresh_seconds = 0);
 
-// Render the document at `width` px into a PNG via Imlib2. Returns 0 on success.
-int render_to_png(const Document& doc, const StyleMap& styles, int width,
-                  const std::string& path);
+// Headless operation on `target` (a file path, or a request path in CGI mode):
+// dump the DOM and/or computed styles to stdout, and/or rasterise to a PNG at
+// `render_to`. `cgi_program` empty -> file mode. Returns 0 on success.
+int run_headless(const std::string& target, const std::string& cgi_program, int width,
+                 const std::string& render_to, bool dump_dom, bool dump_style);
 
 }  // namespace hv
