@@ -64,10 +64,16 @@ struct LayoutBox {
     }
 };
 
+// Given an <img>/asset `src`, return a local file path that Imlib2 can load
+// (resolving relative paths, decoding data: URLs, fetching via CGI, etc.), or
+// "" if it can't be obtained.
+using ResolveImg = std::function<std::string(const std::string& src)>;
+
 // Build + position the box tree for the document body at the given viewport
 // width. Returns the root box; total document height is root->height.
 std::unique_ptr<LayoutBox> layout_document(const Document& doc, const StyleMap& sm,
-                                           FontCache& fonts, float viewport_width);
+                                           FontCache& fonts, float viewport_width,
+                                           const ResolveImg& resolve_image);
 
 struct SelectOption {
     std::string label;  // visible text

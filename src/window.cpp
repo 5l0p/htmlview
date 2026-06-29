@@ -38,6 +38,7 @@ struct Page {
     bool has_hover = false;  // stylesheet uses :hover -> track pointer for restyle
     int refresh = 0;         // <meta http-equiv=refresh> seconds (0 = none)
     std::string refresh_url; // optional target of the meta refresh
+    ResolveImg resolve_image;  // <img src> -> local file path (data:/file/CGI)
     bool ok = false;
 };
 
@@ -206,6 +207,97 @@ Page build_page(std::string src, std::string base_dir, const std::string& title_
 // No-op fetch for self-contained HTML (error pages, etc.).
 const FetchFn kNoFetch = [](const std::string&) { return std::string(); };
 
+// --- image resolution (data: URLs, CGI fetch) ---------------------------
+
+std::string b64_decode(const std::string& in) {
+    static const std::string chars =
+        "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    int T[256];
+    for (int& v : T) v = -1;
+    for (int i = 0; i < 64; ++i) T[(unsigned char)chars[i]] = i;
+    std::string out;
+    int val = 0, bits = -8;
+    for (unsigned char c : in) {
+        if (c == '=') break;
+        if (T[c] == -1) continue;  // skip whitespace/newlines
+        val = (val << 6) + T[c];
+        bits += 6;
+        if (bits >= 0) { out.push_back((char)((val >> bits) & 0xFF)); bits -= 8; }
+    }
+    return out;
+}
+
+std::string url_decode(const std::string& in) {
+    std::string out;
+    for (size_t i = 0; i < in.size(); ++i) {
+        if (in[i] == '%' && i + 2 < in.size()) {
+            out.push_back((char)std::strtol(in.substr(i + 1, 2).c_str(), nullptr, 16));
+            i += 2;
+        } else if (in[i] == '+') out.push_back(' ');
+        else out.push_back(in[i]);
+    }
+    return out;
+}
+
+// Write `bytes` to a fresh /tmp file with extension `ext`; returns the path.
+std::string write_temp(const std::string& bytes, const std::string& ext) {
+    static int counter = 0;
+    std::string path = "/tmp/htmlview_img_" + std::to_string(counter++) + ext;
+    std::ofstream f(path, std::ios::binary);
+    if (!f) return "";
+    f.write(bytes.data(), (std::streamsize)bytes.size());
+    return path;
+}
+
+std::string ext_for(const std::string& meta_or_path) {
+    if (meta_or_path.find("png") != std::string::npos) return ".png";
+    if (meta_or_path.find("jpeg") != std::string::npos ||
+        meta_or_path.find("jpg") != std::string::npos) return ".jpg";
+    if (meta_or_path.find("gif") != std::string::npos) return ".gif";
+    if (meta_or_path.find("bmp") != std::string::npos) return ".bmp";
+    if (meta_or_path.find("webp") != std::string::npos) return ".webp";
+    return ".img";
+}
+
+// Decode a data: URL ("data:[<mime>][;base64],<data>") to a temp file.
+std::string data_url_to_temp(const std::string& src) {
+    size_t comma = src.find(',');
+    if (comma == std::string::npos) return "";
+    std::string meta = src.substr(5, comma - 5);  // between "data:" and ","
+    std::string data = src.substr(comma + 1);
+    bool b64 = meta.find("base64") != std::string::npos;
+    std::string bytes = b64 ? b64_decode(data) : url_decode(data);
+    return write_temp(bytes, ext_for(meta));
+}
+
+using ImgCache = std::shared_ptr<std::map<std::string, std::string>>;
+
+// Build a resolver mapping <img src> -> a loadable local path. `program` empty
+// means file mode (resolve against base_dir); otherwise fetch via CGI GET.
+ResolveImg make_image_resolver(std::string base, std::string program, ImgCache cache) {
+    return [base, program, cache](const std::string& src) -> std::string {
+        if (src.rfind("data:", 0) == 0) {
+            auto it = cache->find(src);
+            if (it != cache->end()) return it->second;
+            return (*cache)[src] = data_url_to_temp(src);
+        }
+        if (src.rfind("http://", 0) == 0 || src.rfind("https://", 0) == 0) return "";
+        if (program.empty())  // file mode: a real path Imlib2 can open directly
+            return (!src.empty() && src[0] == '/') ? src : base + "/" + src;
+        // CGI mode: fetch the bytes and stash them in a temp file.
+        auto it = cache->find(src);
+        if (it != cache->end()) return it->second;
+        std::string path = src, query;
+        if (size_t q = src.find('?'); q != std::string::npos) {
+            path = src.substr(0, q);
+            query = src.substr(q + 1);
+        }
+        CgiResponse r = run_cgi(program, "GET", path, query);
+        std::string out = r.ok ? write_temp(r.body, ext_for(r.content_type + " " + path)) : "";
+        return (*cache)[src] = out;
+    };
+}
+
 std::string html_escape(const std::string& s) {
     std::string out;
     for (char c : s) {
@@ -248,7 +340,10 @@ Page load_file_page(const std::string& path) {
         if (!read_file(p, s)) std::fprintf(stderr, "htmlview: cannot read %s\n", p.c_str());
         return s;
     };
-    return build_page(std::move(src), base, path, fetch);
+    Page pg = build_page(std::move(src), base, path, fetch);
+    pg.resolve_image = make_image_resolver(pg.doc.base_dir, "",
+                                           std::make_shared<std::map<std::string, std::string>>());
+    return pg;
 }
 
 // Run a CGI request and build a Page from the response, following Location:
@@ -287,7 +382,10 @@ Page load_cgi_request(const std::string& program, const std::string& method,
             CgiResponse rr = run_cgi(program, "GET", p, query);
             return rr.ok ? rr.body : std::string();
         };
-        return build_page(std::move(body), "", path, fetch);
+        Page pg = build_page(std::move(body), "", path, fetch);
+        pg.resolve_image = make_image_resolver(pg.doc.base_dir, program,
+                                               std::make_shared<std::map<std::string, std::string>>());
+        return pg;
     }
     return build_page("<title>CGI</title><p>too many redirects</p>", "", "CGI", kNoFetch);
 }
@@ -445,7 +543,7 @@ int run_window(const std::string& target0, const std::string& cgi_program,
     std::string eff_refresh_url;
 
     auto relayout = [&]() {
-        root = layout_document(page.doc, page.styles, fonts, (float)width);
+        root = layout_document(page.doc, page.styles, fonts, (float)width, page.resolve_image);
         doc_height = root ? root->height : 0;
     };
     // Re-run the cascade with the current hover state, then relayout (layout
@@ -784,7 +882,9 @@ int render_to_png(const Document& doc, const StyleMap& styles, int width,
     imlib_context_set_colormap(cmap);
 
     FontCache fonts(dpy, screen);
-    auto root = layout_document(doc, styles, fonts, (float)width);
+    ResolveImg resolve_image = make_image_resolver(
+        doc.base_dir, "", std::make_shared<std::map<std::string, std::string>>());
+    auto root = layout_document(doc, styles, fonts, (float)width, resolve_image);
     int height = std::max(1, (int)std::ceil(root ? root->height : 1));
 
     FormState form;

@@ -103,8 +103,10 @@ Beyond the core model, 2.0's distinctive additions — and our gaps:
   - [x] `<meta http-equiv=refresh>` — honoured (with optional `url=`), overrides
         the `--refresh` CLI flag.
   - [ ] `<meta charset>` and other `<meta>` keys.
-- [ ] **Resource fetching** is now in place for `<link>`; extend to `<img src>`
-      in CGI mode and to `<base href>`.
+- [x] **Resource fetching** for `<link>` CSS and `<img src>`: `data:` URLs
+      (base64 / percent-encoded) decode to temp files; CGI-mode images are
+      fetched via GET. (Temp files are cached per page but leak until exit — a
+      cleanup/cache-eviction pass is still TODO.)
 
 
 > Out of scope for 2.0 (arrived later, already partly done here as extras):

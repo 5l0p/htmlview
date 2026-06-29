@@ -84,6 +84,8 @@ CSS  ─▶ css ─▶ rules ───────┴▶ style (cascade) ─▶ 
   back/forward history.
 - **Entities:** the full ISO 8859-1 (Latin-1) named set, common punctuation, and
   numeric `&#nnn;` / `&#xhh;` references. `<img alt>` shown when an image fails.
+- **Images:** local files (relative to the doc / `<base href>`), `data:` URLs
+  (base64 or percent-encoded), and — in CGI mode — images fetched from the backend.
 - **CSS properties:** `display`, `color`, `background-color`, `font-family/size/weight/style`,
   `text-align`, `text-decoration`, `list-style-type`, `margin*`, `padding*`,
   `border` + per-side `border-top/right/bottom/left` (solid), `width`, `height`.
