@@ -68,7 +68,14 @@ using StyleMap = std::unordered_map<const Element*, ComputedStyle>;
 
 // Resolve computed styles for every element in the document, applying the UA
 // default stylesheet, the author rules, and inline style="" attributes.
-StyleMap resolve_styles(const Document& doc, const std::vector<Rule>& author);
+// `hovered` (if non-null) activates `:hover` rules for that element and its
+// ancestors, so the cascade reflects the current pointer position.
+StyleMap resolve_styles(const Document& doc, const std::vector<Rule>& author,
+                        const Element* hovered = nullptr);
+
+// True if any author rule uses a `:hover` pseudo-class (lets callers skip the
+// re-resolve-on-hover machinery when it can have no effect).
+bool stylesheet_has_hover(const std::vector<Rule>& author);
 
 // Value parsers (also used by layout/paint). Return false on failure.
 bool parse_color(const std::string& in, RGBA& out);

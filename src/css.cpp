@@ -52,18 +52,20 @@ std::vector<std::string> split(const std::string& s, char sep) {
 
 SimpleSelector parse_simple(const std::string& tok) {
     SimpleSelector ss;
+    auto is_sep = [](char c) { return c == '.' || c == '#' || c == ':'; };
     size_t i = 0;
-    // leading type name (until . or #)
-    while (i < tok.size() && tok[i] != '.' && tok[i] != '#') i++;
+    // leading type name (until . # or :)
+    while (i < tok.size() && !is_sep(tok[i])) i++;
     std::string type = tok.substr(0, i);
     if (type != "*" && !type.empty()) ss.tag = to_lower(type);
     while (i < tok.size()) {
         char kind = tok[i++];
         size_t start = i;
-        while (i < tok.size() && tok[i] != '.' && tok[i] != '#') i++;
+        while (i < tok.size() && !is_sep(tok[i])) i++;
         std::string name = tok.substr(start, i - start);
         if (kind == '#') ss.id = name;
         else if (kind == '.') ss.classes.push_back(name);
+        else if (kind == ':') ss.pseudo = to_lower(name);  // last one wins
     }
     return ss;
 }
@@ -80,6 +82,7 @@ Selector parse_selector(const std::string& text) {
     for (const auto& ss : sel.chain) {
         if (!ss.id.empty()) a++;
         b += (int)ss.classes.size();
+        if (!ss.pseudo.empty()) b++;  // pseudo-class adds class-level specificity
         if (!ss.tag.empty()) c++;
     }
     sel.specificity = a * 100 + b * 10 + c;

@@ -32,6 +32,7 @@ struct Page {
     std::vector<Rule> rules;
     StyleMap styles;
     std::string title;
+    bool has_hover = false;  // stylesheet uses :hover -> track pointer for restyle
     bool ok = false;
 };
 
@@ -55,6 +56,7 @@ Page load_page(const std::string& path) {
     size_t slash = path.find_last_of('/');
     pg.doc.base_dir = (slash == std::string::npos) ? "." : path.substr(0, slash);
     pg.rules = parse_css(pg.doc.css);
+    pg.has_hover = stylesheet_has_hover(pg.rules);
     pg.styles = resolve_styles(pg.doc, pg.rules);
     pg.title = pg.doc.title.empty() ? path : pg.doc.title;
     pg.ok = true;
@@ -62,13 +64,13 @@ Page load_page(const std::string& path) {
 }
 
 // Deepest box under (px,py) in document coords that carries a link href.
-const std::string* find_href(const LayoutBox* box, float px, float py) {
-    const std::string* found = nullptr;
+const LayoutBox* find_link(const LayoutBox* box, float px, float py) {
+    const LayoutBox* found = nullptr;
     if (!box->href.empty() && px >= box->x && px < box->x + box->width &&
         py >= box->y && py < box->y + box->height)
-        found = &box->href;
+        found = box;
     for (const auto& c : box->children)
-        if (const std::string* r = find_href(c.get(), px, py)) found = r;
+        if (const LayoutBox* r = find_link(c.get(), px, py)) found = r;
     return found;
 }
 
@@ -113,10 +115,17 @@ int run_window(const std::string& path) {
     Pixmap buffer = XCreatePixmap(dpy, win, width, height, depth);
     std::unique_ptr<LayoutBox> root;
     float scroll_y = 0, doc_height = 0;
+    const Element* hovered = nullptr;
 
     auto relayout = [&]() {
         root = layout_document(page.doc, page.styles, fonts, (float)width);
         doc_height = root ? root->height : 0;
+    };
+    // Re-run the cascade with the current hover state, then relayout (layout
+    // boxes hold pointers into the StyleMap, so it must be rebuilt wholesale).
+    auto restyle_for_hover = [&]() {
+        page.styles = resolve_styles(page.doc, page.rules, hovered);
+        relayout();
     };
     auto repaint = [&]() {
         Painter p(dpy, buffer, visual, cmap, fonts);
@@ -142,6 +151,7 @@ int run_window(const std::string& path) {
         page = std::move(np);
         XStoreName(dpy, win, page.title.c_str());
         scroll_y = 0;
+        hovered = nullptr;
         relayout();
         clamp_scroll();
         repaint();
@@ -169,11 +179,19 @@ int run_window(const std::string& path) {
                 }
                 break;
             case MotionNotify: {
-                bool over = root && find_href(root.get(), ev.xmotion.x,
-                                              ev.xmotion.y + scroll_y) != nullptr;
+                const LayoutBox* link = root ? find_link(root.get(), ev.xmotion.x,
+                                                          ev.xmotion.y + scroll_y) : nullptr;
+                bool over = link != nullptr;
                 if (over != hand_active) {
                     XDefineCursor(dpy, win, over ? hand : None);
                     hand_active = over;
+                }
+                // Restyle on link enter/leave so :hover rules take effect.
+                const Element* now = link ? link->element : nullptr;
+                if (page.has_hover && now != hovered) {
+                    hovered = now;
+                    restyle_for_hover();
+                    repaint();
                 }
                 break;
             }
@@ -181,9 +199,9 @@ int run_window(const std::string& path) {
                 if (ev.xbutton.button == 4) { scroll_y -= 48; clamp_scroll(); repaint(); }
                 else if (ev.xbutton.button == 5) { scroll_y += 48; clamp_scroll(); repaint(); }
                 else if (ev.xbutton.button == 1 && root) {
-                    if (const std::string* href = find_href(root.get(), ev.xbutton.x,
-                                                            ev.xbutton.y + scroll_y))
-                        navigate(*href);
+                    if (const LayoutBox* link = find_link(root.get(), ev.xbutton.x,
+                                                          ev.xbutton.y + scroll_y))
+                        navigate(link->href);
                 }
                 break;
             case KeyPress: {

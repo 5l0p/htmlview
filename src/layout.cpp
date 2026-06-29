@@ -46,6 +46,7 @@ struct Frag {
     const ComputedStyle* style = nullptr;
     XftFont* font = nullptr;
     std::string href;
+    const Element* element = nullptr;  // source element (for hover/hit-testing)
     std::string img_path;       // Image only
     float img_w = 0, img_h = 0;  // Image only
 };
@@ -77,19 +78,20 @@ std::string expand_tabs(const std::string& in) {
 }
 
 Frag text_frag(Frag::Type type, std::string text, const ComputedStyle* style,
-               XftFont* font, const std::string& href) {
+               XftFont* font, const std::string& href, const Element* element) {
     Frag f;
     f.type = type;
     f.text = std::move(text);
     f.style = style;
     f.font = font;
     f.href = href;
+    f.element = element;
     return f;
 }
 
 void collect_inline(const StyleMap& sm, FontCache& fonts, const std::string& base_dir,
                     const Node* node, const ComputedStyle& style, const std::string& href,
-                    bool preserve, std::vector<Frag>& out) {
+                    const Element* element, bool preserve, std::vector<Frag>& out) {
     if (node->is_text()) {
         const std::string& d = static_cast<const Text*>(node)->data;
         XftFont* font = fonts.get(style);
@@ -99,21 +101,21 @@ void collect_inline(const StyleMap& sm, FontCache& fonts, const std::string& bas
             while (true) {
                 size_t nl = text.find('\n', start);
                 std::string line = text.substr(start, nl - start);
-                out.push_back(text_frag(Frag::Word, line, &style, font, href));
+                out.push_back(text_frag(Frag::Word, line, &style, font, href, element));
                 if (nl == std::string::npos) break;
-                out.push_back(text_frag(Frag::Break, "", &style, font, href));
+                out.push_back(text_frag(Frag::Break, "", &style, font, href, element));
                 start = nl + 1;
             }
         } else {
             size_t i = 0;
             while (i < d.size()) {
                 if (std::isspace((unsigned char)d[i])) {
-                    out.push_back(text_frag(Frag::Space, "", &style, font, href));
+                    out.push_back(text_frag(Frag::Space, "", &style, font, href, element));
                     while (i < d.size() && std::isspace((unsigned char)d[i])) ++i;
                 } else {
                     size_t s = i;
                     while (i < d.size() && !std::isspace((unsigned char)d[i])) ++i;
-                    out.push_back(text_frag(Frag::Word, d.substr(s, i - s), &style, font, href));
+                    out.push_back(text_frag(Frag::Word, d.substr(s, i - s), &style, font, href, element));
                 }
             }
         }
@@ -124,7 +126,7 @@ void collect_inline(const StyleMap& sm, FontCache& fonts, const std::string& bas
     const ComputedStyle& est = style_of(sm, e);
     if (est.display == DisplayType::NoDisplay) return;
     if (e->tag == Tag::Br) {
-        out.push_back(text_frag(Frag::Break, "", &est, fonts.get(est), href));
+        out.push_back(text_frag(Frag::Break, "", &est, fonts.get(est), href, e));
         return;
     }
     if (e->tag == Tag::Img) {
@@ -141,6 +143,7 @@ void collect_inline(const StyleMap& sm, FontCache& fonts, const std::string& bas
         f.type = Frag::Image;
         f.style = &est;
         f.href = href;
+        f.element = e;
         f.img_path = path;
         f.img_w = w;
         f.img_h = h;
@@ -152,7 +155,7 @@ void collect_inline(const StyleMap& sm, FontCache& fonts, const std::string& bas
         if (const std::string* h = e->attr("href")) new_href = *h;
 
     for (const auto& c : e->children)
-        collect_inline(sm, fonts, base_dir, c.get(), est, new_href,
+        collect_inline(sm, fonts, base_dir, c.get(), est, new_href, e,
                        preserve || est.preserve_ws, out);
 }
 
@@ -169,6 +172,7 @@ float layout_inline(FontCache& fonts, const std::vector<Frag>& frags, LayoutBox*
         TextDecoration deco;
         std::string href;
         std::string img_path;
+        const Element* element = nullptr;
     };
     std::vector<Run> line;
     float pen = 0;
@@ -192,6 +196,7 @@ float layout_inline(FontCache& fonts, const std::vector<Frag>& frags, LayoutBox*
         for (const Run& r : line) {
             auto box = std::make_unique<LayoutBox>();
             box->href = r.href;
+            box->element = r.element;
             box->x = content_x + offset + r.xrel;
             box->y = baseline - r.asc;
             box->width = r.width;
@@ -233,7 +238,8 @@ float layout_inline(FontCache& fonts, const std::vector<Frag>& frags, LayoutBox*
         float sw = (pending_space && !line.empty()) ? (float)fonts.measure(space_font, " ") : 0;
         if (!line.empty() && pen + sw + w > content_width) { flush(false); sw = 0; }
         if (line.empty()) { sw = 0; pending_space = false; }
-        r.xrel = pen + sw; r.width = w; r.asc = asc; r.desc = desc; r.href = f.href;
+        r.xrel = pen + sw; r.width = w; r.asc = asc; r.desc = desc;
+        r.href = f.href; r.element = f.element;
         line.push_back(std::move(r));
         pen += sw + w;
         pending_space = false;
@@ -353,7 +359,7 @@ std::unique_ptr<LayoutBox> layout_block(const StyleMap& sm, FontCache& fonts,
             if (inline_run.empty()) return;
             std::vector<Frag> frags;
             for (const Node* n : inline_run)
-                collect_inline(sm, fonts, base_dir, n, st, box->href, st.preserve_ws, frags);
+                collect_inline(sm, fonts, base_dir, n, st, box->href, el, st.preserve_ws, frags);
             if (!frags.empty()) {
                 auto anon = std::make_unique<LayoutBox>();
                 anon->kind = LayoutBox::Kind::Anonymous;
@@ -393,7 +399,7 @@ std::unique_ptr<LayoutBox> layout_block(const StyleMap& sm, FontCache& fonts,
     } else {
         std::vector<Frag> frags;
         for (const auto& c : el->children)
-            collect_inline(sm, fonts, base_dir, c.get(), st, box->href, st.preserve_ws, frags);
+            collect_inline(sm, fonts, base_dir, c.get(), st, box->href, el, st.preserve_ws, frags);
         float h = layout_inline(fonts, frags, box.get(), content_x, content_width, cursor,
                                 st.text_align);
         cursor += h;

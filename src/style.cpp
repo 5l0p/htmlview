@@ -271,7 +271,15 @@ ComputedStyle ua_defaults(const Element& e, const ComputedStyle& parent) {
     return s;
 }
 
-bool selector_matches_simple(const SimpleSelector& ss, const Element& e) {
+// Is `maybe_anc` the element itself or an ancestor of `node`?
+bool is_self_or_ancestor(const Element* maybe_anc, const Element* node) {
+    for (const Node* n = node; n; n = n->parent)
+        if (n == maybe_anc) return true;
+    return false;
+}
+
+bool selector_matches_simple(const SimpleSelector& ss, const Element& e,
+                             const Element* hovered) {
     if (!ss.tag.empty() && ss.tag != e.name) return false;
     if (!ss.id.empty()) {
         const std::string* id = e.attr("id");
@@ -284,19 +292,28 @@ bool selector_matches_simple(const SimpleSelector& ss, const Element& e) {
         for (const auto& need : ss.classes)
             if (std::find(have.begin(), have.end(), need) == have.end()) return false;
     }
+    if (!ss.pseudo.empty()) {
+        // :hover is true for the hovered element and its ancestors; everything
+        // else (:visited, unknown) never matches (no history/state tracked).
+        if (ss.pseudo == "hover") {
+            if (!hovered || !is_self_or_ancestor(&e, hovered)) return false;
+        } else {
+            return false;
+        }
+    }
     return true;
 }
 
 // Match a descendant chain against element e (subject = last in chain).
-bool selector_matches(const Selector& sel, const Element& e) {
+bool selector_matches(const Selector& sel, const Element& e, const Element* hovered) {
     if (sel.chain.empty()) return false;
-    if (!selector_matches_simple(sel.chain.back(), e)) return false;
+    if (!selector_matches_simple(sel.chain.back(), e, hovered)) return false;
     // Walk ancestors to satisfy the preceding compounds, in order.
     int i = (int)sel.chain.size() - 2;
     const Node* anc = e.parent;
     while (i >= 0 && anc) {
         if (anc->is_element() &&
-            selector_matches_simple(sel.chain[i], *static_cast<const Element*>(anc)))
+            selector_matches_simple(sel.chain[i], *static_cast<const Element*>(anc), hovered))
             --i;
         anc = anc->parent;
     }
@@ -304,7 +321,7 @@ bool selector_matches(const Selector& sel, const Element& e) {
 }
 
 void resolve_node(const Element& e, const ComputedStyle& parent,
-                  const std::vector<Rule>& author, StyleMap& out) {
+                  const std::vector<Rule>& author, const Element* hovered, StyleMap& out) {
     ComputedStyle s = ua_defaults(e, parent);
 
     // Author rules: gather matching declaration blocks with (specificity, order).
@@ -313,7 +330,7 @@ void resolve_node(const Element& e, const ComputedStyle& parent,
     for (const Rule& r : author) {
         int best = -1;
         for (const Selector& sel : r.selectors)
-            if (selector_matches(sel, e)) best = std::max(best, sel.specificity);
+            if (selector_matches(sel, e, hovered)) best = std::max(best, sel.specificity);
         if (best >= 0) matches.push_back({best, r.order, &r.decls});
     }
     std::sort(matches.begin(), matches.end(), [](const Match& a, const Match& b) {
@@ -330,18 +347,28 @@ void resolve_node(const Element& e, const ComputedStyle& parent,
 
     for (const auto& child : e.children)
         if (child->is_element())
-            resolve_node(*static_cast<const Element*>(child.get()), s, author, out);
+            resolve_node(*static_cast<const Element*>(child.get()), s, author, hovered, out);
 }
 
 }  // namespace
 
-StyleMap resolve_styles(const Document& doc, const std::vector<Rule>& author) {
+StyleMap resolve_styles(const Document& doc, const std::vector<Rule>& author,
+                        const Element* hovered) {
     StyleMap out;
     ComputedStyle root_default;  // initial values, 16px black sans
     for (const auto& child : doc.root->children)
         if (child->is_element())
-            resolve_node(*static_cast<const Element*>(child.get()), root_default, author, out);
+            resolve_node(*static_cast<const Element*>(child.get()), root_default, author,
+                         hovered, out);
     return out;
+}
+
+bool stylesheet_has_hover(const std::vector<Rule>& author) {
+    for (const Rule& r : author)
+        for (const Selector& sel : r.selectors)
+            for (const SimpleSelector& ss : sel.chain)
+                if (ss.pseudo == "hover") return true;
+    return false;
 }
 
 namespace {

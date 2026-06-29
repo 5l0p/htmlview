@@ -20,6 +20,7 @@ struct SimpleSelector {
     std::string tag;                     // lowercased element name, "" = any
     std::string id;                      // without '#'
     std::vector<std::string> classes;    // without '.'
+    std::string pseudo;                  // e.g. "hover"/"visited", "" = none
 };
 
 // A full selector: a descendant chain whose last element is the subject.
