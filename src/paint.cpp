@@ -143,8 +143,30 @@ void Painter::paint_widget(const LayoutBox* box, float x, float y) {
         auto it = form_->state->find(box->element);
         if (it != form_->state->end()) ws = &it->second;
     }
+    bool is_password = false, is_textarea = false;
+    if (box->element) {
+        is_textarea = box->element->tag == Tag::Textarea;
+        if (const std::string* t = box->element->attr("type")) {
+            std::string lt = *t;
+            std::transform(lt.begin(), lt.end(), lt.begin(),
+                           [](unsigned char c) { return (char)std::tolower(c); });
+            is_password = (lt == "password");
+        }
+    }
 
     switch (box->widget) {
+        case WidgetKind::Radio: {
+            int d = (int)std::min(box->width, box->height) - 1;
+            XSetForeground(dpy_, gc_, xft_color(white)->pixel);
+            XFillArc(dpy_, target_, gc_, (int)x, (int)y, d, d, 0, 360 * 64);
+            XSetForeground(dpy_, gc_, xft_color(focused ? focus : border)->pixel);
+            XDrawArc(dpy_, target_, gc_, (int)x, (int)y, d, d, 0, 360 * 64);
+            if (ws && ws->checked) {
+                XSetForeground(dpy_, gc_, xft_color(dark)->pixel);
+                XFillArc(dpy_, target_, gc_, (int)x + 3, (int)y + 3, d - 6, d - 6, 0, 360 * 64);
+            }
+            break;
+        }
         case WidgetKind::Checkbox: {
             fill_rect(x, y, box->width, box->height, white);
             stroke_rect(x, y, box->width, box->height, focused ? focus : border);
@@ -193,15 +215,45 @@ void Painter::paint_widget(const LayoutBox* box, float x, float y) {
             fill_rect(x, y, box->width, box->height, white);
             stroke_rect(x, y, box->width, box->height, focused ? focus : border);
             std::string text = ws ? ws->text : std::string();
+            if (is_password) {  // mask: one bullet per code point
+                int n = 0;
+                for (char c : text) if (((unsigned char)c & 0xC0) != 0x80) ++n;
+                std::string dots;
+                for (int i = 0; i < n; ++i) dots += "\xe2\x80\xa2";
+                text = dots;
+            }
             if (box->font) {
-                int baseline = (int)(y + box->font->ascent + 3);
+                int line_h = box->font->ascent + box->font->descent;
                 int tx = (int)x + 4;
-                if (!text.empty())
-                    XftDrawStringUtf8(xft_, xft_color(dark), box->font, tx, baseline,
-                                      (const FcChar8*)text.data(), (int)text.size());
-                if (focused && form_->caret) {
-                    int cx = tx + fonts_.measure(box->font, text) + 1;
-                    fill_rect(cx, y + 3, 1, box->font->ascent + box->font->descent, dark);
+                if (is_textarea) {
+                    // Render each newline-separated line; caret after the last.
+                    int ly = (int)y + 3;
+                    std::string last;
+                    size_t s = 0;
+                    while (true) {
+                        size_t nl = text.find('\n', s);
+                        last = text.substr(s, nl - s);
+                        if (!last.empty())
+                            XftDrawStringUtf8(xft_, xft_color(dark), box->font, tx,
+                                              ly + box->font->ascent,
+                                              (const FcChar8*)last.data(), (int)last.size());
+                        if (nl == std::string::npos) break;
+                        ly += line_h;
+                        s = nl + 1;
+                    }
+                    if (focused && form_->caret) {
+                        int cx = tx + fonts_.measure(box->font, last) + 1;
+                        fill_rect(cx, ly + 3, 1, line_h, dark);
+                    }
+                } else {
+                    int baseline = (int)(y + box->font->ascent + 3);
+                    if (!text.empty())
+                        XftDrawStringUtf8(xft_, xft_color(dark), box->font, tx, baseline,
+                                          (const FcChar8*)text.data(), (int)text.size());
+                    if (focused && form_->caret) {
+                        int cx = tx + fonts_.measure(box->font, text) + 1;
+                        fill_rect(cx, y + 3, 1, line_h, dark);
+                    }
                 }
             }
             break;

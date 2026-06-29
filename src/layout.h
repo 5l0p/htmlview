@@ -22,7 +22,7 @@ namespace hv {
 
 // Interactive form controls. Mutable per-control state (text, checked) lives in
 // a FormState map keyed by the source Element, so it survives relayout.
-enum class WidgetKind { NoWidget, TextInput, Checkbox, Button, Select };
+enum class WidgetKind { NoWidget, TextInput, Checkbox, Radio, Button, Select };
 
 struct WidgetState {
     std::string text;       // text-input contents

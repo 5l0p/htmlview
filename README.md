@@ -76,8 +76,10 @@ CSS  ─▶ css ─▶ rules ───────┴▶ style (cascade) ─▶ 
 - **Elements:** `html head body title style`, `h1`–`h6`, `p div span pre br hr`,
   `a img`, `ul ol li`, `b i em strong`, `blockquote address dl dt dd menu dir`,
   `code samp kbd var cite tt u sub sup`, `table tr td th`, and form controls
-  `form input button textarea select` (text inputs, checkboxes, buttons are
-  interactive; select is a static box; radios render as checkboxes).
+  `form input button textarea select` — text fields (incl. `password` masking),
+  checkboxes, radio groups, submit/reset/plain buttons, and multi-line
+  `textarea` are interactive; forms submit via GET (query string) or POST (CGI,
+  body on stdin); `select` is a static box. `Tab`/`Shift+Tab` cycle text fields.
 - **Navigation:** local links, `#fragment` anchors (`id` / `<a name>`), and
   back/forward history.
 - **Entities:** the full ISO 8859-1 (Latin-1) named set, common punctuation, and

@@ -91,7 +91,7 @@ bool widget_frag(const Element* e, const ComputedStyle& st, FontCache& fonts, Fr
                        [](unsigned char c) { return (char)std::tolower(c); });
         if (type == "hidden") return false;
         if (type == "checkbox" || type == "radio") {
-            f.widget = WidgetKind::Checkbox;
+            f.widget = (type == "radio") ? WidgetKind::Radio : WidgetKind::Checkbox;
             f.img_w = f.img_h = 13;
             return true;
         }
@@ -629,14 +629,20 @@ std::unique_ptr<LayoutBox> layout_table(const StyleMap& sm, FontCache& fonts,
 
 std::unique_ptr<LayoutBox> layout_document(const Document& doc, const StyleMap& sm,
                                            FontCache& fonts, float viewport_width) {
-    const Element* body = find_body(doc.root.get());
-    if (!body) {
-        auto empty = std::make_unique<LayoutBox>();
-        empty->width = viewport_width;
-        return empty;
+    // Prefer <body>; otherwise lay out the document root directly (browsers
+    // synthesize an implicit body for body-less fragments).
+    const Element* container = find_body(doc.root.get());
+    if (container) {
+        const ComputedStyle& st = style_of(sm, container);
+        return layout_block(sm, fonts, doc.base_dir, container, st, 0, 0, viewport_width);
     }
-    const ComputedStyle& st = style_of(sm, body);
-    return layout_block(sm, fonts, doc.base_dir, body, st, 0, 0, viewport_width);
+    static const ComputedStyle kRootBlock = [] {
+        ComputedStyle s;
+        s.display = DisplayType::Block;
+        s.margin = {8, 8, 8, 8};  // default body margin
+        return s;
+    }();
+    return layout_block(sm, fonts, doc.base_dir, doc.root.get(), kRootBlock, 0, 0, viewport_width);
 }
 
 }  // namespace hv

@@ -68,6 +68,30 @@ void init_form_state(const Node* n, FormState& fs) {
     }
 }
 
+// Within `form`, set the radio named `name` to `chosen` and clear its peers.
+void select_radio(const Node* n, const std::string& name, const Element* chosen,
+                  FormState& fs) {
+    if (!n->is_element()) return;
+    const auto* e = static_cast<const Element*>(n);
+    if (e->tag == Tag::Input) {
+        const std::string* t = e->attr("type");
+        const std::string* nm = e->attr("name");
+        if (t && nm && *nm == name) {
+            std::string lt = *t;
+            std::transform(lt.begin(), lt.end(), lt.begin(),
+                           [](unsigned char c) { return (char)std::tolower(c); });
+            if (lt == "radio") fs[e].checked = (e == chosen);
+        }
+    }
+    for (const auto& c : e->children) select_radio(c.get(), name, chosen, fs);
+}
+
+// Collect text-editable controls (in document order) for Tab navigation.
+void collect_focusables(const LayoutBox* box, std::vector<const Element*>& out) {
+    if (box->widget == WidgetKind::TextInput && box->element) out.push_back(box->element);
+    for (const auto& c : box->children) collect_focusables(c.get(), out);
+}
+
 // Deepest widget box under (px,py) in document coords.
 const LayoutBox* find_widget(const LayoutBox* box, float px, float py) {
     const LayoutBox* found = nullptr;
@@ -188,10 +212,13 @@ Page load_file_page(const std::string& path) {
     return build_page(std::move(src), base, path, fetch);
 }
 
-// Run a CGI request for `target` ("path?query") and build a Page from the
-// response, following Location: redirects. base_dir is empty (no local assets).
-Page load_cgi_page(const std::string& program, const std::string& target) {
+// Run a CGI request and build a Page from the response, following Location:
+// redirects (which become GETs). `body` non-empty implies POST. base_dir is
+// empty (no local assets).
+Page load_cgi_request(const std::string& program, const std::string& method,
+                      const std::string& target, const std::string& body) {
     std::string t = target;
+    std::string m = method, b = body;
     for (int hop = 0; hop < 8; ++hop) {
         std::string path = t, query;
         if (size_t q = t.find('?'); q != std::string::npos) {
@@ -199,12 +226,14 @@ Page load_cgi_page(const std::string& program, const std::string& target) {
             query = t.substr(q + 1);
         }
         if (path.empty()) path = "/";
-        CgiResponse r = run_cgi(program, "GET", path, query);
+        CgiResponse r = run_cgi(program, m, path, query, b);
         if (!r.ok)
             return make_error_page("CGI error",
                                    (r.error.empty() ? "request failed" : r.error) +
                                        " (" + program + ")");
-        if (!r.location.empty() && (r.status / 100) == 3) { t = r.location; continue; }
+        if (!r.location.empty() && (r.status / 100) == 3) {
+            t = r.location; m = "GET"; b.clear(); continue;  // redirect -> GET
+        }
         std::string ct = r.content_type;
         std::string body = r.body;
         if (ct.rfind("text/plain", 0) == 0)
@@ -222,6 +251,10 @@ Page load_cgi_page(const std::string& program, const std::string& target) {
         return build_page(std::move(body), "", path, fetch);
     }
     return build_page("<title>CGI</title><p>too many redirects</p>", "", "CGI", kNoFetch);
+}
+
+Page load_cgi_page(const std::string& program, const std::string& target) {
+    return load_cgi_request(program, "GET", target, "");
 }
 
 // --- form serialization -------------------------------------------------
@@ -415,9 +448,8 @@ int run_window(const std::string& target0, const std::string& cgi_program,
         else { eff_refresh = refresh_seconds; eff_refresh_url.clear(); }
         if (eff_refresh > 0) refresh_deadline = Clock::now() + std::chrono::seconds(eff_refresh);
     };
-    // Load `target` into the view (no history change). Returns success.
-    auto load_into = [&](const std::string& target) -> bool {
-        Page np = load_target(target);
+    // Make `np` the current page and refresh the whole view.
+    auto show_page = [&](Page np, const std::string& target) -> bool {
         if (!np.ok) return false;
         page = std::move(np);
         current_target = target;
@@ -430,6 +462,10 @@ int run_window(const std::string& target0, const std::string& cgi_program,
         repaint();
         update_refresh();
         return true;
+    };
+    // Load `target` (GET) into the view (no history change).
+    auto load_into = [&](const std::string& target) -> bool {
+        return show_page(load_target(target), target);
     };
     auto push_history = [&](const std::string& target) {
         history.resize(hindex + 1);  // drop any forward history
@@ -462,12 +498,18 @@ int run_window(const std::string& target0, const std::string& cgi_program,
             if (!frag.empty()) scroll_to_fragment(frag);
         }
     };
-    // Serialize the form enclosing `control` and issue a GET to its action.
+    // Serialize the form enclosing `control` and submit it (GET query string, or
+    // POST body in CGI mode).
     auto submit_form = [&](const Element* control) {
         const Element* form = enclosing_form(control);
-        std::string query;
-        if (form) gather_fields(form, page.form, control, query);
-        else if (control->attr("name")) gather_fields(control, page.form, control, query);
+        std::string fields;
+        if (form) gather_fields(form, page.form, control, fields);
+        else if (control->attr("name")) gather_fields(control, page.form, control, fields);
+
+        std::string method;
+        if (form && form->attr("method")) method = *form->attr("method");
+        std::transform(method.begin(), method.end(), method.begin(),
+                       [](unsigned char c) { return (char)std::tolower(c); });
 
         std::string action;
         if (form && form->attr("action")) action = *form->attr("action");
@@ -475,8 +517,15 @@ int run_window(const std::string& target0, const std::string& cgi_program,
             action = current_target;
             if (size_t q = action.find('?'); q != std::string::npos) action = action.substr(0, q);
         }
-        std::string target = query.empty() ? action : action + "?" + query;
-        if (load_into(target)) push_history(target);
+
+        if (method == "post" && cgi_mode) {
+            // POST: fields go on the program's stdin, not the URL.
+            if (show_page(load_cgi_request(cgi_program, "POST", action, fields), action))
+                push_history(action);
+        } else {
+            std::string target = fields.empty() ? action : action + "?" + fields;
+            if (load_into(target)) push_history(target);
+        }
     };
     auto go = [&](int delta) {
         long ni = (long)hindex + delta;
@@ -548,6 +597,17 @@ int run_window(const std::string& target0, const std::string& cgi_program,
                                 page.form[w->element].checked = !page.form[w->element].checked;
                                 repaint();
                                 break;
+                            case WidgetKind::Radio: {
+                                const Element* form = enclosing_form(w->element);
+                                std::string nm = w->element->attr("name")
+                                                     ? *w->element->attr("name") : "";
+                                if (form && !nm.empty())
+                                    select_radio(form, nm, w->element, page.form);
+                                else
+                                    page.form[w->element].checked = true;
+                                repaint();
+                                break;
+                            }
                             case WidgetKind::Button: {
                                 const Element* be = w->element;
                                 std::string type = be->attr("type") ? *be->attr("type") : "";
@@ -557,8 +617,14 @@ int run_window(const std::string& target0, const std::string& cgi_program,
                                                   type != "reset") ||
                                                  (be->tag == Tag::Input && type == "submit");
                                 if (is_submit) { repaint(); submit_form(be); }
-                                else { std::fprintf(stderr, "htmlview: button: %s\n", w->text.c_str());
-                                       repaint(); }
+                                else if (type == "reset") {
+                                    if (const Element* form = enclosing_form(be)) {
+                                        page.form.clear();  // re-seed defaults from the DOM
+                                        init_form_state(form, page.form);
+                                    }
+                                    repaint();
+                                } else { std::fprintf(stderr, "htmlview: button: %s\n", w->text.c_str());
+                                         repaint(); }
                                 break;
                             }
                             default: repaint(); break;
@@ -577,8 +643,22 @@ int run_window(const std::string& target0, const std::string& cgi_program,
                     KeySym ks2;
                     int n = XLookupString(&ev.xkey, buf, sizeof buf, &ks2, nullptr);
                     std::string& text = page.form[focused].text;
-                    if (ks2 == XK_Escape || ks2 == XK_Return || ks2 == XK_KP_Enter) {
+                    bool textarea = focused->tag == Tag::Textarea;
+                    if (ks2 == XK_Tab) {  // move focus between text controls
+                        std::vector<const Element*> f;
+                        if (root) collect_focusables(root.get(), f);
+                        if (!f.empty()) {
+                            auto it = std::find(f.begin(), f.end(), focused);
+                            int idx = (it == f.end()) ? 0 : (int)(it - f.begin());
+                            int dir = (ev.xkey.state & ShiftMask) ? -1 : 1;
+                            focused = f[(idx + dir + (int)f.size()) % f.size()];
+                            repaint();
+                        }
+                    } else if (ks2 == XK_Escape) {
                         focused = nullptr; repaint();
+                    } else if (ks2 == XK_Return || ks2 == XK_KP_Enter) {
+                        if (textarea) { text += '\n'; repaint(); }
+                        else { focused = nullptr; repaint(); }  // single-line: blur
                     } else if (ks2 == XK_BackSpace) {
                         if (!text.empty()) text.pop_back();
                         repaint();
