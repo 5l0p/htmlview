@@ -3,15 +3,25 @@
 Roadmap for `htmlview`. Roughly ordered by value for the app-specific use case.
 
 ## Next up
+- [ ] **Layout-fidelity batch**: `border-collapse` + auto column sizing for
+      tables, `margin: auto` / `%` widths, `line-height`, inline `vertical-align`
+      (all detailed under *Layout fidelity* below).
 - [ ] **CGI: persistent-coprocess option** for in-memory state (re-spawn POST
       already works).
-- [ ] **CGI: backend-served images/assets** (currently HTML/CSS only).
-- [ ] Real `<select>` dropdown (currently a static box).
+- [ ] **Temp-file cleanup** for fetched/`data:` images (cached per page but
+      currently leak until exit).
 - [ ] **Paint-only hover recolour** — `:hover` currently re-resolves + relays
       out on link enter/leave; a recolor-without-relayout path would remove the
       hitch on large pages.
 
 ## Done
+- [x] Image resource fetching: `data:` URLs (base64/percent) and CGI-served
+      images materialised to local files; `<base href>` for relative resolution.
+- [x] Real `<select>` dropdown (inline overlay, option selection); `<input
+      type=image>` as an image-labelled submit.
+- [x] Table `colspan` / `rowspan` (grid-occupancy model).
+- [x] External `<link rel=stylesheet>` CSS; `--refresh` flag and
+      `<meta http-equiv=refresh>`.
 - [x] Forms part 2: POST submission (CGI, body on stdin), radio-button grouping,
       password masking, reset buttons, Tab focus cycling, multi-line textarea
       editing; body-less documents lay out from the root.
@@ -51,7 +61,8 @@ Roadmap for `htmlview`. Roughly ordered by value for the app-specific use case.
 - [ ] Glyph fallback for missing code points (some bullets/symbols show tofu in
       fonts lacking them; shape bullets already sidestep this).
 - [ ] Incremental repaint of only the exposed/dirty region.
-- [ ] Image cache (images currently load twice: once for size, once to paint).
+- [ ] Decoded-image cache (resolved *paths* are cached, but each image is still
+      opened twice via Imlib2 — once to size, once to paint).
 
 ## Known limitations (intentional for v1)
 - Latin/Western text only — no HarfBuzz shaping or bidi.
@@ -92,14 +103,17 @@ Beyond the core model, 2.0's distinctive additions — and our gaps:
         submit / `reset` / plain buttons, multi-line `<textarea>`, Tab focus.
   - [x] **`method=POST`** with `application/x-www-form-urlencoded` body (CGI,
         on the program's stdin); GET submits via the query string.
-  - [ ] Real `<select>` (dropdown, option selection, `multiple`) — static today.
-  - [ ] `<input type=image>` and `<input type=file>`.
+  - [x] Real `<select>` (inline-overlay dropdown, option selection). `multiple`
+        and a true popup window are still TODO.
+  - [x] `<input type=image>` — minimal (image-labelled submit). `type=file`
+        (needs a file chooser) is still TODO.
   - [~] `<isindex>` single-field search prompt — **won't do** (obsolete; a
         one-field `<form>` covers the same need).
 - [ ] **Head elements**:
   - [x] **`<link rel=stylesheet href>`** — external CSS (file dir, or CGI
         requests); honoured by the window and the render/dump paths.
-  - [ ] **`<base href>`** — resolve relative URLs/links against it.
+  - [x] **`<base href>`** — overrides the dir used to resolve relative
+        links/srcs (file and CGI modes).
   - [x] `<meta http-equiv=refresh>` — honoured (with optional `url=`), overrides
         the `--refresh` CLI flag.
   - [ ] `<meta charset>` and other `<meta>` keys.
