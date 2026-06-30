@@ -572,6 +572,8 @@ int run_window(const std::string& target0, const std::string& cgi_program,
     ImgPixCache img_cache = std::make_shared<std::map<std::string, Imlib_Image>>();
     Pixmap page_buf = None;  // full-document off-screen pixmap (doc width × doc height)
     bool page_dirty = true;  // rebuild page_buf before next blit
+    Imlib_Image resize_snapshot = nullptr;  // blurred capture used during live resize
+    bool in_resize = false;
     float scroll_y = 0, doc_height = 0;
     const Element* hovered = nullptr;
     const Element* focused = nullptr;      // focused text-input element
@@ -582,6 +584,7 @@ int run_window(const std::string& target0, const std::string& cgi_program,
 
     using Clock = std::chrono::steady_clock;
     Clock::time_point refresh_deadline;
+    Clock::time_point resize_deadline;
     int eff_refresh = 0;              // effective interval (page meta overrides CLI)
     std::string eff_refresh_url;
 
@@ -598,6 +601,16 @@ int run_window(const std::string& target0, const std::string& cgi_program,
         relayout();
     };
     auto repaint = [&]() {
+        // While the user is dragging a resize, always show the blurred snapshot
+        // rather than the stale page_buf (Expose events fire during resize too).
+        if (in_resize && resize_snapshot) {
+            imlib_context_set_image(resize_snapshot);
+            imlib_context_set_drawable(buffer);
+            imlib_context_set_anti_alias(1);
+            imlib_render_image_on_drawable_at_size(0, 0, width, height);
+            XCopyArea(dpy, buffer, win, gc, 0, 0, width, height, 0, 0);
+            return;
+        }
         // Rebuild the full-document pixmap only when content changed.
         if (page_dirty || page_buf == None) {
             if (page_buf != None) { XFreePixmap(dpy, page_buf); page_buf = None; }
@@ -760,13 +773,28 @@ int run_window(const std::string& target0, const std::string& cgi_program,
                 break;
             case ConfigureNotify:
                 if (ev.xconfigure.width != width || ev.xconfigure.height != height) {
+                    if (!in_resize) {
+                        // First event of a drag: capture the current view as a
+                        // blurred snapshot to display while the user is resizing.
+                        in_resize = true;
+                        if (resize_snapshot) {
+                            imlib_context_set_image(resize_snapshot);
+                            imlib_free_image();
+                        }
+                        imlib_context_set_drawable(buffer);
+                        resize_snapshot = imlib_create_image_from_drawable(0, 0, 0, width, height, 0);
+                        if (resize_snapshot) {
+                            imlib_context_set_image(resize_snapshot);
+                            imlib_image_blur(6);
+                        }
+                    }
                     width = ev.xconfigure.width;
                     height = ev.xconfigure.height;
                     XFreePixmap(dpy, buffer);
                     buffer = XCreatePixmap(dpy, win, width, height, depth);
-                    relayout();
-                    clamp_scroll();
-                    repaint();
+                    // Arm the debounce: commit to a real relayout 150 ms after
+                    // the last resize event.
+                    resize_deadline = Clock::now() + std::chrono::milliseconds(150);
                 }
                 break;
             case MotionNotify: {
@@ -922,25 +950,43 @@ int run_window(const std::string& target0, const std::string& cgi_program,
             }  // switch (ev.type)
         }  // drain while
 
-        // Block until the next X event or the refresh deadline.
+        // Block until the next X event, the refresh deadline, or the resize
+        // debounce deadline — whichever comes first.
         fd_set rfds;
         FD_ZERO(&rfds);
         FD_SET(xfd, &rfds);
         struct timeval tv, *ptv = nullptr;
-        if (eff_refresh > 0) {
-            long ms = std::chrono::duration_cast<std::chrono::milliseconds>(
-                          refresh_deadline - Clock::now()).count();
-            if (ms < 0) ms = 0;
-            tv.tv_sec = ms / 1000;
-            tv.tv_usec = (ms % 1000) * 1000;
+        auto ms_until = [](Clock::time_point t) -> long {
+            return std::max(0L, std::chrono::duration_cast<std::chrono::milliseconds>(
+                                    t - Clock::now()).count());
+        };
+        long wait_ms = LONG_MAX;
+        if (eff_refresh > 0) wait_ms = std::min(wait_ms, ms_until(refresh_deadline));
+        if (in_resize)       wait_ms = std::min(wait_ms, ms_until(resize_deadline));
+        if (wait_ms != LONG_MAX) {
+            tv.tv_sec  = wait_ms / 1000;
+            tv.tv_usec = (wait_ms % 1000) * 1000;
             ptv = &tv;
         }
-        if (select(xfd + 1, &rfds, nullptr, nullptr, ptv) == 0 &&
-            eff_refresh > 0 && Clock::now() >= refresh_deadline)
-            do_refresh();
+        if (select(xfd + 1, &rfds, nullptr, nullptr, ptv) == 0) {
+            if (eff_refresh > 0 && Clock::now() >= refresh_deadline)
+                do_refresh();
+            if (in_resize && Clock::now() >= resize_deadline) {
+                in_resize = false;
+                if (resize_snapshot) {
+                    imlib_context_set_image(resize_snapshot);
+                    imlib_free_image();
+                    resize_snapshot = nullptr;
+                }
+                relayout();
+                clamp_scroll();
+                repaint();
+            }
+        }
     }  // while (running)
 
     XFreeCursor(dpy, hand);
+    if (resize_snapshot) { imlib_context_set_image(resize_snapshot); imlib_free_image(); }
     if (page_buf != None) XFreePixmap(dpy, page_buf);
     XFreePixmap(dpy, buffer);
     XFreeGC(dpy, gc);
