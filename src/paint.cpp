@@ -136,7 +136,11 @@ void Painter::paint_box(const LayoutBox* box, float ox, float oy) {
     // into children — they may be absolutely/relatively positioned and in view.
     bool in_view = (y + box->height >= 0.f && y < (float)height_);
 
-    if (in_view && box->style) {
+    // Anonymous boxes wrap a run of inline content for layout purposes and
+    // borrow the containing block's ComputedStyle (for inherited font/color/
+    // text-align) — but they aren't the element that style belongs to, so
+    // they must not repaint its background/border too.
+    if (in_view && box->style && box->kind != LayoutBox::Kind::Anonymous) {
         const ComputedStyle& s = *box->style;
         if (!s.background_color.transparent())
             fill_rect(x, y, box->width, box->height, s.background_color);
