@@ -11,6 +11,7 @@
 #include <cstdio>
 #include <fstream>
 #include <functional>
+#include <set>
 #include <sstream>
 #include <sys/select.h>
 
@@ -187,13 +188,38 @@ void parse_meta_refresh(const Node* n, Page& pg) {
         parse_meta_refresh(c.get(), pg);
 }
 
-// Walk the DOM and record elements with tags we don't recognise.
+// Attribute names read anywhere in the renderer (layout/style/window). An
+// attribute outside this set is silently ignored, valid HTML or not.
+bool is_known_attr(const std::string& key) {
+    static const std::set<std::string> kKnown = {
+        "id", "class", "style", "href", "name", "src", "width", "height",
+        "alt", "type", "value", "checked", "size", "cols", "rows",
+        "selected", "action", "method", "colspan", "rowspan",
+        "http-equiv", "content", "rel",
+    };
+    return kKnown.count(key) != 0;
+}
+
+// Walk the DOM and record elements with tags we don't recognise, and
+// attributes we don't act on.
 void collect_dom_errors(const Node* n, std::vector<std::string>& errors) {
     if (!n->is_element()) return;
     const auto* e = static_cast<const Element*>(n);
     // Skip synthetic structure nodes (e.g. the "#document" root).
-    if (e->tag == Tag::Unknown && !e->name.empty() && e->name[0] != '#')
-        errors.push_back("html: unknown tag <" + e->name + ">");
+    if (!e->name.empty() && e->name[0] != '#') {
+        // base/link/meta are recognised by name only (no Tag enum entry).
+        bool recognised = e->tag != Tag::Unknown ||
+                          e->name == "base" || e->name == "link" || e->name == "meta";
+        if (!recognised) {
+            errors.push_back("html: unknown tag <" + e->name + ">");
+        } else {
+            for (const auto& [key, val] : e->attrs) {
+                (void)val;
+                if (!is_known_attr(key))
+                    errors.push_back("html: unknown attribute '" + key + "' on <" + e->name + ">");
+            }
+        }
+    }
     for (const auto& c : e->children) collect_dom_errors(c.get(), errors);
 }
 
