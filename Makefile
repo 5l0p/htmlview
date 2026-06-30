@@ -14,7 +14,7 @@ SRCS := $(wildcard $(SRCDIR)/*.cpp)
 OBJS := $(patsubst $(SRCDIR)/%.cpp,$(OBJDIR)/%.o,$(SRCS))
 DEPS := $(OBJS:.o=.d)
 
-.PHONY: all clean run
+.PHONY: all clean run test test-update
 
 all: $(BIN)
 
@@ -29,6 +29,12 @@ $(OBJDIR):
 
 run: $(BIN)
 	./$(BIN) test/kitchen-sink.html
+
+test: $(BIN)
+	./test/run.sh
+
+test-update: $(BIN)
+	UPDATE=1 ./test/run.sh
 
 clean:
 	rm -rf $(OBJDIR) $(BIN)

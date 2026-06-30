@@ -1,0 +1,13 @@
+<!DOCTYPE html>
+<!-- Regression test: a bordered block whose children are separated only by
+     whitespace text nodes (the normal case for hand-formatted/templated
+     HTML) used to get an extra copy of its own border painted, and extra
+     height added, once per whitespace gap. See paint.cpp Kind::Anonymous
+     handling in paint_box. -->
+<html><body>
+<div style="border: 1px solid #ccc; padding: 4px;">
+  <div>one</div>
+  <div>two</div>
+  <div>three</div>
+</div>
+</body></html>

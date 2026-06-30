@@ -1,0 +1,34 @@
+<#document>
+  <html>
+    <head>
+      <title>
+        "table spans"
+      <style>
+        "body { font-family: sans-serif; margin: 16px; } table { border: 2px solid #335; border-collapse: collapse; } td, th { border: 1px solid #88a; padding: 6px 10px; } th { background: #dde; } .hl { background: #ffe9a8; }"
+    <body>
+      <h3>
+        "colspan / rowspan"
+      <table>
+        <tr>
+          <th colspan="3">
+            "Quarterly results (colspan=3)"
+        <tr>
+          <td class="hl" rowspan="2">
+            "North"
+            <br>
+            "(rowspan=2)"
+          <td>
+            "Q1"
+          <td>
+            "100"
+        <tr>
+          <td>
+            "Q2"
+          <td>
+            "140"
+        <tr>
+          <td>
+            "South"
+          <td colspan="2">
+            "merged Q1+Q2 (colspan=2)"
+--- title: "table spans"

@@ -1,0 +1,53 @@
+<#document>
+  <html>
+    <head>
+      <title>
+        "forms"
+      <style>
+        "body { font-family: sans-serif; margin: 16px; } h3 { color: navy; } label { display: inline; } p { margin: 10px 0; }"
+    <body>
+      <h3>
+        "Login"
+      <form action="/login" method="post">
+        <p>
+          "Username:"
+          <input name="user" size="18" type="text" value="claude">
+        <p>
+          "Password:"
+          <input name="pw" size="18" type="password" value="secret">
+        <p>
+          <input checked="" name="remember" type="checkbox">
+          "Remember me"
+        <p>
+          <input name="news" type="checkbox">
+          "Subscribe to newsletter"
+        <p>
+          "Plan:"
+          <input checked="" name="plan" type="radio" value="free">
+          "Free"
+          <input name="plan" type="radio" value="pro">
+          "Pro"
+          <input name="plan" type="radio" value="team">
+          "Team"
+        <p>
+          <input type="submit" value="Log in">
+          <input type="reset" value="Reset">
+          <button type="button">
+            "Cancel"
+      <h3>
+        "Other controls"
+      <p>
+        "Choose:"
+        <select name="choice">
+          <option value="a">
+            "First option"
+          <option selected="" value="b">
+            "Second option"
+          <option value="c">
+            "Third option"
+      <p>
+        "Notes:"
+        <br>
+        <textarea cols="30" rows="3">
+          "multi-line text area"
+--- title: "forms"

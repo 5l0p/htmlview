@@ -1,0 +1,83 @@
+<#document>
+  <html>
+    <head>
+      <title>
+        "HTML 1.x elements"
+      <style>
+        "body { font-family: serif; margin: 18px; } h3 { color: navy; font-family: sans-serif; }"
+    <body>
+      <h3>
+        "Blockquote & address"
+      <blockquote>
+        "This is a block quotation. It should be indented from both the left and right margins relative to the body text around it."
+      <address>
+        "1 Infinite Loop, Cupertino"
+      <h3>
+        "Definition list"
+      <dl>
+        <dt>
+          "HTML"
+        <dd>
+          "HyperText Markup Language — the document format."
+        <dt>
+          "CSS"
+        <dd>
+          "Cascading Style Sheets — presentation."
+      <h3>
+        "Phrase elements"
+      <p>
+        "Inline styles:"
+        <code>
+          "monospace code"
+        ","
+        <samp>
+          "sample"
+        ","
+        <kbd>
+          "Ctrl+C"
+        ","
+        <tt>
+          "teletype"
+        ","
+        <var>
+          "variable"
+        ","
+        <cite>
+          "a citation"
+        ","
+        <u>
+          "underlined"
+        ","
+        <b>
+          "bold"
+        ","
+        <i>
+          "italic"
+        "."
+      <h3>
+        "Sub & superscript"
+      <p>
+        "Water is H"
+        <sub>
+          "2"
+        "O, and E = mc"
+        <sup>
+          "2"
+        ". Footnote"
+        <sup>
+          "1"
+        "here."
+      <h3>
+        "Missing image (alt text)"
+      <p>
+        "Before"
+        <img alt="[broken logo]" src="does-not-exist.png">
+        "after."
+      <h3>
+        "menu / dir"
+      <menu>
+        <li>
+          "Menu item one"
+        <li>
+          "Menu item two"
+--- title: "HTML 1.x elements"

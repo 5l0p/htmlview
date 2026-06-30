@@ -1,0 +1,11 @@
+<#document>
+  <html>
+    <body>
+      <div style="border: 1px solid #ccc; padding: 4px;">
+        <div>
+          "one"
+        <div>
+          "two"
+        <div>
+          "three"
+--- title: "test/regression-anon-box.html"

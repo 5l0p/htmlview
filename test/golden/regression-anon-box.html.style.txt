@@ -1,0 +1,8 @@
+--- 0 CSS rules parsed
+<#document>
+  <html>  [block font=sans/16px color=#000000 bg=transparent m=0,0,0,0 p=0,0,0,0 bw=0 deco=none]
+    <body>  [block font=sans/16px color=#000000 bg=transparent m=0,0,0,0 p=0,0,0,0 bw=0 deco=none]
+      <div>  [block font=sans/16px color=#000000 bg=transparent m=0,0,0,0 p=4,4,4,4 bw=1 deco=none]
+        <div>  [block font=sans/16px color=#000000 bg=transparent m=0,0,0,0 p=0,0,0,0 bw=0 deco=none]
+        <div>  [block font=sans/16px color=#000000 bg=transparent m=0,0,0,0 p=0,0,0,0 bw=0 deco=none]
+        <div>  [block font=sans/16px color=#000000 bg=transparent m=0,0,0,0 p=0,0,0,0 bw=0 deco=none]

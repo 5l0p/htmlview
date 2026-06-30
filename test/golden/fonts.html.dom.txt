@@ -1,0 +1,17 @@
+<#document>
+  <html>
+    <head>
+      <title>
+        "font fallback"
+      <style>
+        "body { margin: 16px; font-size: 20px; } .a { font-family: "Totally Missing Font", "Another Missing One", monospace; } .b { font-family: "No Such Face", serif; } .c { font-family: sans-serif; } .d { font-family: "DejaVu Serif", Georgia, serif; font-style: italic; } p { margin: 6px 0; }"
+    <body>
+      <p class="a">
+        "A: missing, missing, monospace → should be MONOSPACE."
+      <p class="b">
+        "B: missing, serif → should be a serif face."
+      <p class="c">
+        "C: sans-serif → should be sans."
+      <p class="d">
+        "D: DejaVu Serif / Georgia / serif, italic."
+--- title: "font fallback"

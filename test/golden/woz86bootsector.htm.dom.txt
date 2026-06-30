@@ -1,0 +1,115 @@
+<#document>
+  <html>
+    <head>
+      <title>
+        "A wozmon-like bootsector monitor program"
+      <meta content="bootloader with wozmon commands over a serial port." name="description">
+      <meta charset="UTF-8">
+      <style>
+        "<!-- body { background-color: #c3d194; color: #000000; margin: 20px; padding: 20px; } h1 { text-align: center; font-size: 24px; color: #000000; background-color: #ffff99; padding: 10px; border: 2px solid #000000; } h2 { font-size: 18px; color: #000000; margin-top: 20px; margin-bottom: 10px; } a { color: #000000; text-decoration: underline; } a:visited { color: #333333; } a:hover { color: #cc0000; } p { margin-top: 10px; margin-bottom: 10px; } li { list-style-type: none; } pre { background-color: #ffffff; color: #000000; padding: 10px; border: 1px solid #000000; border-left: 5px solid #463705; font-family: monospace; } -->"
+    <body>
+      <h1>
+        "~5l0p/zine"
+      <a href="../../rss.xml">
+        "RSS"
+      "-"
+      <a href="../../index.htm">
+        "Home"
+      "-"
+      <a href="woz86bootsector.txt">
+        "plain/text"
+      "|"
+      <i>
+        "2026-01-12"
+      <h2>
+        "A wozmon-like bootsector monitor program"
+      <p>
+        "A chatbot generated this stream of bytes, a wozmon style monitor used over COM1. This has only been tested in QEMU"
+      <p>
+        "A minimal bootloader in a single 512-byte boot sector."
+      <h2>
+        "Command Syntax"
+      <p>
+        "The monitor uses Woz Monitor-style syntax (all addresses in hexadecimal):"
+      <ul>
+        <li>
+          "All addresses are 4-digit hexadecimal (0000-FFFF)"
+        <li>
+          "All byte values are 2-digit hexadecimal (00-FF)"
+        <li>
+          "Commands are case-insensitive (R/r, G/g work the same)"
+        <li>
+          "Press Enter/Return after each command"
+        <li>
+          "No spaces required (except between bytes in write command)"
+      <ul>
+        <li>
+          <bold>
+            "Examine"
+          <pre>
+            "AAAA<CR>"
+          "-"
+          <pre>
+            "7C00"
+          "outputs"
+          <pre>
+            "7C00: FA"
+        <li>
+          <bold>
+            "Dump"
+          <pre>
+            "AAAAR"
+          "- Dump 128 bytes (8 lines × 16 bytes) from address AAAA -"
+          <pre>
+            "7C00R"
+        <li>
+          <bold>
+            "Write"
+          <pre>
+            "AAAA:BB BB BB"
+          "- Write hex bytes to memory starting at AAAA -"
+          <pre>
+            "8000:41 42 43"
+        <li>
+          <bold>
+            "Execute"
+          <pre>
+            "AAAAG"
+          "- Jump to (execute) code at address AAAA"
+      <pre>
+        "0000000 c031 d88e c08e d08e 00bc ba7c 03f9 c030 0000010 baee 03fb 80b0 baee 03f8 0cb0 baee 03f9 0000020 c030 baee 03fb 03b0 baee 03fc 03b0 b0ee 0000030 e80d 0014 0ab0 0fe8 b000 e82a 000a 20b0 0000040 05e8 e800 00a5 e7eb 5052 fdba ec03 20a8 0000050 fb74 ba58 03f8 5aee bac3 03fd a8ec 7401 0000060 bafb 03f8 c3ec 84ac 74c0 e805 ffda f6eb 0000070 24c3 040f 3c30 7639 0402 eb07 50cb e8c0 0000080 e804 ffed 2458 eb0f 86e8 e8e0 ffef e086 0000090 ebeb c4e8 e8ff ffb0 303c 1472 393c 0d76 00000a0 200c 613c 0a72 663c 0677 572c 2cc3 c330 00000b0 ffb0 31c3 31db e8c9 ff9f e850 ff8a 3c58 00000c0 7230 3c27 7639 0c0e 3c20 7261 3c1d 7766 00000d0 2c19 eb57 2c02 c130 04e3 c308 8341 04f9 00000e0 d572 74e8 50ff 5fe8 58ff e8c3 ffc5 0d3c 00000f0 1b74 523c 2c74 723c 2874 473c 840f 00b6 0000100 673c 840f 00b0 3a3c 4b74 ace9 8900 e8d8 0000110 ff77 3ab0 31e8 b0ff e820 ff2c 078a 5ce8 0000120 c3ff df89 08b9 5100 0db0 1be8 b0ff e80a 0000130 ff16 f889 52e8 b0ff e83a ff0c 20b0 07e8 0000140 b9ff 0010 058a e847 ff33 20b0 f9e8 e2fe 0000150 59f3 d3e2 89c3 e8df feff e850 feea 3c58 0000160 7420 3cf4 740d 3c4e 7230 3c3e 7639 0c0e 0000170 3c20 7261 3c34 7766 2c30 eb57 2c02 c030 0000180 04e0 c488 d2e8 50fe bde8 58fe 303c 1972 0000190 393c 0e76 200c 613c 0f72 663c 0b77 572c 00001a0 02eb 302c e008 ebaa e8ae fead e850 fe98 00001b0 3c58 750d c3f4 d3ff e8c3 fe9d 0d3c f975"
+      <h2>
+        "give me the ASM"
+      <pre>
+        "; 16-bit Serial Bootloader Monitor ; Woz Monitor style commands via COM1 serial port ; Fits in 512-byte boot sector org 0x7C00 bits 16 start: ; Initialize segments xor ax, ax mov ds, ax mov es, ax mov ss, ax mov sp, 0x7C00 ; Stack grows down from bootloader ; Initialize COM1 serial port (0x3F8) ; Disable interrupts mov dx, 0x3F9 ; Interrupt Enable Register xor al, al out dx, al ; Set DLAB (Divisor Latch Access Bit) to configure baud rate mov dx, 0x3FB ; Line Control Register mov al, 0x80 ; DLAB = 1 out dx, al ; Set baud rate to 9600 (divisor = 115200/9600 = 12) mov dx, 0x3F8 ; Divisor Latch Low mov al, 12 out dx, al mov dx, 0x3F9 ; Divisor Latch High xor al, al out dx, al ; Configure: 8 data bits, no parity, 1 stop bit (8N1) mov dx, 0x3FB ; Line Control Register mov al, 0x03 ; DLAB=0, 8N1 out dx, al ; Enable DTR and RTS mov dx, 0x3FC ; Modem Control Register mov al, 0x03 ; DTR + RTS out dx, al ; Fall through to main loop"
+      <h3>
+        "Main Monitor Loop"
+      <pre>
+        "main_loop: ; Print prompt mov al, 0x0D ; CR call serial_send mov al, 0x0A ; LF call serial_send mov al, '*' call serial_send mov al, ' ' call serial_send ; Parse input and execute command call parse_input jmp main_loop"
+      <h3>
+        "Serial I/O Primitives"
+      <pre>
+        "; Send byte via serial ; Input: AL = byte to send serial_send: push dx push ax mov dx, 0x3FD ; Line Status Register .wait: in al, dx test al, 0x20 ; Transmit buffer empty? jz .wait pop ax mov dx, 0x3F8 ; Data register out dx, al pop dx ret ; Receive byte via serial ; Output: AL = received byte serial_recv: mov dx, 0x3FD ; Line Status Register .wait: in al, dx test al, 0x01 ; Data ready? jz .wait mov dx, 0x3F8 ; Data register in al, dx ret ; Print null-terminated string ; Input: SI = pointer to string print_string: lodsb test al, al jz .done call serial_send jmp print_string .done: ret"
+      <h3>
+        "Hex Output Routines"
+      <pre>
+        "; Print hex nibble (4 bits) ; Input: AL = nibble (0-15) print_hex_nibble: and al, 0x0F add al, '0' cmp al, '9' jbe .send add al, 7 ; 'A' - '9' - 1 = 7 .send: jmp serial_send ; Tail call ; Print hex byte (8 bits) ; Input: AL = byte print_hex_byte: push ax shr al, 4 ; High nibble call print_hex_nibble pop ax and al, 0x0F ; Low nibble jmp print_hex_nibble ; Tail call ; Print hex word (16 bits) ; Input: AX = word print_hex_word: xchg al, ah ; Print high byte first call print_hex_byte xchg al, ah ; Restore and print low byte jmp print_hex_byte ; Tail call"
+      <h3>
+        "Hex Input Parsing"
+      <pre>
+        "; Parse hex nibble from input ; Output: AL = nibble value (0-15), or 0xFF if invalid parse_hex_nibble: call serial_recv call serial_send ; Echo character cmp al, '0' jb .invalid cmp al, '9' jbe .digit or al, 0x20 ; Convert to lowercase cmp al, 'a' jb .invalid cmp al, 'f' ja .invalid sub al, 'a' - 10 ret .digit: sub al, '0' ret .invalid: mov al, 0xFF ret ; Parse hex number (up to 4 digits for 16-bit address) ; Output: BX = parsed address, AL = command character parse_hex_number: xor bx, bx ; Accumulator xor cx, cx ; Digit counter .loop: call serial_recv ; Echo character push ax call serial_send pop ax ; Check if hex digit cmp al, '0' jb .done cmp al, '9' jbe .digit or al, 0x20 ; Convert to lowercase cmp al, 'a' jb .done cmp al, 'f' ja .done sub al, 'a' - 10 jmp .add_digit .digit: sub al, '0' .add_digit: ; Shift accumulator left 4 bits and add new nibble shl bx, 4 or bl, al inc cx cmp cx, 4 ; Max 4 hex digits (16-bit address) jb .loop ; Read one more char (command char) call serial_recv push ax call serial_send pop ax .done: ret ; BX = address, AL = command character"
+      <h3>
+        "Command Parser and Dispatcher"
+      <pre>
+        "; Parse input and dispatch command ; Commands: ; AAAA"
+        <cr>
+          "- Examine byte at address ; AAAAR - Dump memory from address ; AAAA:BB BB - Write bytes to address ; AAAAG - Execute at address parse_input: call parse_hex_number ; BX = address, AL = command char ; AL now contains the character after the address ; Check for CR (examine) cmp al, 0x0D je cmd_examine ; Check for 'R' or 'r' (dump range) cmp al, 'R' je cmd_dump_range cmp al, 'r' je cmd_dump_range ; Check for 'G' or 'g' (execute) cmp al, 'G' je cmd_execute cmp al, 'g' je cmd_execute ; Check for ':' (write bytes) cmp al, ':' je cmd_write_bytes ; Unknown command - skip to end of line jmp skip_to_eol"
+      <h3>
+        "Commands"
+      <pre>
+        "; Examine byte at address ; Input: BX = address cmd_examine: mov ax, bx call print_hex_word mov al, ':' call serial_send mov al, ' ' call serial_send mov al, [bx] call print_hex_byte ret ; Dump memory range (8 lines x 16 bytes = 128 bytes) ; Input: BX = start address cmd_dump_range: mov di, bx mov cx, 8 ; 8 lines .line_loop: push cx ; Newline mov al, 0x0D call serial_send mov al, 0x0A call serial_send ; Print address mov ax, di call print_hex_word mov al, ':' call serial_send mov al, ' ' call serial_send ; Print 16 bytes mov cx, 16 .byte_loop: mov al, [di] inc di call print_hex_byte mov al, ' ' call serial_send loop .byte_loop pop cx loop .line_loop ret ; Write bytes to memory ; Input: BX = start address cmd_write_bytes: mov di, bx .loop: ; Read character call serial_recv ; Echo it push ax call serial_send pop ax ; Skip spaces cmp al, ' ' je .loop ; Check for CR (done) cmp al, 0x0D je .done ; Parse high nibble (AL already has the character) cmp al, '0' jb .skip_to_cr cmp al, '9' jbe .digit1 or al, 0x20 cmp al, 'a' jb .skip_to_cr cmp al, 'f' ja .skip_to_cr sub al, 'a' - 10 jmp .got_high .digit1: sub al, '0' .got_high: shl al, 4 mov ah, al ; Parse low nibble call serial_recv push ax call serial_send pop ax cmp al, '0' jb .skip_to_cr cmp al, '9' jbe .digit2 or al, 0x20 cmp al, 'a' jb .skip_to_cr cmp al, 'f' ja .skip_to_cr sub al, 'a' - 10 jmp .got_low .digit2: sub al, '0' .got_low: or al, ah stosb ; Store byte and increment DI jmp .loop .skip_to_cr: call serial_recv push ax call serial_send pop ax cmp al, 0x0D jne .skip_to_cr .done: ret ; Execute code at address ; Input: BX = address cmd_execute: call bx ; Call the address ret ; If it returns, continue ; Skip to end of line skip_to_eol: call serial_recv cmp al, 0x0D jne skip_to_eol ret"
+      <h3>
+        "Boot Signature"
+      <pre>
+        "; Pad to 510 bytes and add boot signature times 510-($-$$) db 0 dw 0xAA55"
+--- title: "A wozmon-like bootsector monitor program"

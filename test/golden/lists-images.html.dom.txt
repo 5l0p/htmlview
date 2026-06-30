@@ -1,0 +1,43 @@
+<#document>
+  <html>
+    <head>
+      <title>
+        "lists + images"
+      <style>
+        "body { font-family: sans-serif; margin: 16px; } h3 { color: navy; } ul.square { list-style-type: square; }"
+    <body>
+      <h3>
+        "Unordered (disc)"
+      <ul>
+        <li>
+          "First bullet item"
+        <li>
+          "Second, with a longer line that should wrap onto a second line within the list content box to prove wrapping still works inside list items"
+        <li>
+          "Third"
+      <h3>
+        "Unordered (square)"
+      <ul class="square">
+        <li>
+          "Alpha"
+        <li>
+          "Beta"
+      <h3>
+        "Ordered (decimal)"
+      <ol>
+        <li>
+          "One"
+        <li>
+          "Two"
+        <li>
+          "Three"
+      <h3>
+        "Inline image"
+      <p>
+        "Text before"
+        <img src="logo.png">
+        "and text after the image, flowing on the same line."
+      <p>
+        <img height="96" src="logo.png" width="128">
+        "scaled to 128×96."
+--- title: "lists + images"

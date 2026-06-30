@@ -1,0 +1,11 @@
+--- 6 CSS rules parsed
+<#document>
+  <html>  [block font=sans/16px color=#000000 bg=transparent m=0,0,0,0 p=0,0,0,0 bw=0 deco=none]
+    <head>  [block font=sans/16px color=#000000 bg=transparent m=0,0,0,0 p=0,0,0,0 bw=0 deco=none]
+      <title>  [none font=sans/16px color=#000000 bg=transparent m=0,0,0,0 p=0,0,0,0 bw=0 deco=none]
+      <style>  [none font=sans/16px color=#000000 bg=transparent m=0,0,0,0 p=0,0,0,0 bw=0 deco=none]
+    <body>  [block font=sans/20px color=#000000 bg=transparent m=16,16,16,16 p=0,0,0,0 bw=0 deco=none]
+      <p>  [block font=Totally Missing Font,Another Missing One,monospace/20px color=#000000 bg=transparent m=6,0,6,0 p=0,0,0,0 bw=0 deco=none]
+      <p>  [block font=No Such Face,serif/20px color=#000000 bg=transparent m=6,0,6,0 p=0,0,0,0 bw=0 deco=none]
+      <p>  [block font=sans-serif/20px color=#000000 bg=transparent m=6,0,6,0 p=0,0,0,0 bw=0 deco=none]
+      <p>  [block font=DejaVu Serif,Georgia,serif/20px italic color=#000000 bg=transparent m=6,0,6,0 p=0,0,0,0 bw=0 deco=none]

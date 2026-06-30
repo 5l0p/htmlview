@@ -1,0 +1,3 @@
+html: unknown attribute 'charset' on <meta>
+html: unknown tag <bold>
+html: unknown tag <cr>
