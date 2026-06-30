@@ -1,0 +1,9 @@
+<#document>
+  <html>
+    <head>
+      <style>
+        "a { display: inline; background: #ff0000; padding: 10px; border: 2px solid #0000ff; }"
+    <body>
+      <a href="#">
+        "Button"
+--- title: "test/regression-inline-decoration.html"

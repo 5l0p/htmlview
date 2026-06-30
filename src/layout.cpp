@@ -303,26 +303,73 @@ float layout_inline(FontCache& fonts, const std::vector<Frag>& frags, LayoutBox*
         std::string href;
         std::string img_path;
         const Element* element = nullptr;
+        const ComputedStyle* style = nullptr;
+        float pad_l = 0, pad_r = 0;  // reserved on the first/last run of a decorated element
     };
     std::vector<Run> line;
     float pen = 0;
     bool pending_space = false;
     float y = content_top;
 
+    // An inline element with a background or border is "decorated": its
+    // padding/border is reserved in the pen advance (so neighbouring
+    // content doesn't run into it) and flush() paints one box behind each
+    // contiguous run of words belonging to it, since TextRun boxes
+    // themselves carry no style/background of their own.
+    auto decorated = [](const ComputedStyle* s) {
+        return s && (!s->background_color.transparent() || s->border.any());
+    };
+
     auto flush = [&](bool force) {
         if (line.empty()) {
             if (force) y += 16 * 1.2f;  // blank line from a lone <br>
             return;
         }
+        // A decorated run's vertical padding/border pushes into the line's
+        // own ascent/descent, so the line reserves room for it (otherwise
+        // its box would overflow above/below the line and get clipped).
         float max_asc = 0, max_desc = 0;
         for (const Run& r : line) {
-            max_asc = std::max(max_asc, r.asc - r.voffset);   // voffset<0 (sup) -> taller
-            max_desc = std::max(max_desc, r.desc + r.voffset);  // voffset>0 (sub) -> deeper
+            float top_extra = 0, bot_extra = 0;
+            if (decorated(r.style)) {
+                top_extra = r.style->padding.top + r.style->border.top.width;
+                bot_extra = r.style->padding.bottom + r.style->border.bottom.width;
+            }
+            max_asc = std::max(max_asc, r.asc - r.voffset + top_extra);   // voffset<0 (sup) -> taller
+            max_desc = std::max(max_desc, r.desc + r.voffset + bot_extra);  // voffset>0 (sub) -> deeper
         }
         float offset = 0;
         if (align == TextAlign::Center) offset = std::max(0.0f, (content_width - pen) / 2);
         else if (align == TextAlign::Right) offset = std::max(0.0f, content_width - pen);
         float baseline = y + max_asc;
+
+        // Decoration boxes first, so they paint underneath the text.
+        for (size_t i = 0; i < line.size(); ) {
+            const Run& first = line[i];
+            size_t j = i;
+            while (j + 1 < line.size() && line[j + 1].element == first.element) ++j;
+            if (decorated(first.style)) {
+                const ComputedStyle& s = *first.style;
+                const Run& last = line[j];
+                float g_asc = 0, g_desc = 0;
+                for (size_t k = i; k <= j; ++k) {
+                    g_asc = std::max(g_asc, line[k].asc - line[k].voffset);
+                    g_desc = std::max(g_desc, line[k].desc + line[k].voffset);
+                }
+                auto deco = std::make_unique<LayoutBox>();
+                deco->kind = LayoutBox::Kind::Block;
+                deco->element = first.element;
+                deco->style = first.style;
+                deco->href = first.href;
+                deco->x = content_x + offset + first.xrel - first.pad_l;
+                deco->y = baseline - g_asc - s.padding.top - s.border.top.width;
+                deco->width = (last.xrel + last.width + last.pad_r) - (first.xrel - first.pad_l);
+                deco->height = g_asc + g_desc + s.padding.top + s.padding.bottom
+                              + s.border.top.width + s.border.bottom.width;
+                parent->add(std::move(deco));
+            }
+            i = j + 1;
+        }
         for (const Run& r : line) {
             auto box = std::make_unique<LayoutBox>();
             box->href = r.href;
@@ -355,7 +402,25 @@ float layout_inline(FontCache& fonts, const std::vector<Frag>& frags, LayoutBox*
         pending_space = false;
     };
 
-    for (const Frag& f : frags) {
+    size_t n = frags.size();
+    std::vector<bool> is_first(n, false), is_last(n, false);
+    {
+        const Element* prev = nullptr;
+        for (size_t i = 0; i < n; ++i) {
+            if (frags[i].type == Frag::Space || frags[i].type == Frag::Break) continue;
+            if (frags[i].element != prev) is_first[i] = true;
+            prev = frags[i].element;
+        }
+        const Element* next = nullptr;
+        for (size_t i = n; i-- > 0; ) {
+            if (frags[i].type == Frag::Space || frags[i].type == Frag::Break) continue;
+            if (frags[i].element != next) is_last[i] = true;
+            next = frags[i].element;
+        }
+    }
+
+    for (size_t i = 0; i < n; ++i) {
+        const Frag& f = frags[i];
         if (f.type == Frag::Break) { flush(true); continue; }
         if (f.type == Frag::Space) { pending_space = true; continue; }
 
@@ -374,14 +439,17 @@ float layout_inline(FontCache& fonts, const std::vector<Frag>& frags, LayoutBox*
             r.text = f.text; r.font = f.font; r.color = f.style->color;
             r.deco = f.style->text_decoration;
         }
+        bool dec = decorated(f.style);
+        float pad_l = (dec && is_first[i]) ? f.style->padding.left + f.style->border.left.width : 0;
+        float pad_r = (dec && is_last[i]) ? f.style->padding.right + f.style->border.right.width : 0;
         XftFont* space_font = f.font ? f.font : fonts.get(*f.style);
         float sw = (pending_space && !line.empty()) ? (float)fonts.measure(space_font, " ") : 0;
-        if (!line.empty() && pen + sw + w > content_width) { flush(false); sw = 0; }
+        if (!line.empty() && pen + sw + pad_l + w > content_width) { flush(false); sw = 0; }
         if (line.empty()) { sw = 0; pending_space = false; }
-        r.xrel = pen + sw; r.width = w; r.asc = asc; r.desc = desc; r.voffset = f.voffset;
-        r.href = f.href; r.element = f.element;
+        r.xrel = pen + sw + pad_l; r.width = w; r.asc = asc; r.desc = desc; r.voffset = f.voffset;
+        r.href = f.href; r.element = f.element; r.style = f.style; r.pad_l = pad_l; r.pad_r = pad_r;
         line.push_back(std::move(r));
-        pen += sw + w;
+        pen += sw + pad_l + w + pad_r;
         pending_space = false;
     }
     flush(false);

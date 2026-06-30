@@ -99,6 +99,16 @@ pixel_check regression-col-padding.html \
     "result = im.getpixel((60, 10))" \
     "(255, 0, 0)" "pixel inside the 48px+40px-padding first column"
 
+# Inline background/border/padding (layout_inline in layout.cpp): TextRun
+# boxes never carried a style pointer, so CSS background/border/padding on
+# an inline element (e.g. a link styled as a button) was silently dropped.
+# The decoration box's vertical padding/border also has to push into the
+# line's own ascent/descent, or it overflows above/below the line and gets
+# clipped -- check the top border row specifically, not just the fill.
+pixel_check regression-inline-decoration.html \
+    "result = im.getpixel((40, 0))" \
+    "(0, 0, 255)" "top border row of the decorated inline element"
+
 if [ -n "${UPDATE:-}" ]; then
     echo "updated goldens for $total cases"
     exit 0

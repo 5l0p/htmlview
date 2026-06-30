@@ -1,0 +1,7 @@
+--- 1 CSS rules parsed
+<#document>
+  <html>  [block font=sans/16px color=#000000 bg=transparent m=0,0,0,0 p=0,0,0,0 bw=0 deco=none]
+    <head>  [block font=sans/16px color=#000000 bg=transparent m=0,0,0,0 p=0,0,0,0 bw=0 deco=none]
+      <style>  [none font=sans/16px color=#000000 bg=transparent m=0,0,0,0 p=0,0,0,0 bw=0 deco=none]
+    <body>  [block font=sans/16px color=#000000 bg=transparent m=0,0,0,0 p=0,0,0,0 bw=0 deco=none]
+      <a>  [inline font=sans/16px color=#0000ee bg=#ff0000 m=0,0,0,0 p=10,10,10,10 bw=2 deco=underline]

@@ -1,0 +1,10 @@
+<!DOCTYPE html>
+<!-- Regression test: TextRun boxes never carried a style pointer, so CSS
+     background/border/padding on an inline element (e.g. a "button" made of
+     <a>) was silently dropped -- only color/font/text-decoration applied.
+     See the decoration-box pass in layout_inline (layout.cpp). -->
+<html><head><style>
+  a { display: inline; background: #ff0000; padding: 10px; border: 2px solid #0000ff; }
+</style></head><body>
+<a href="#">Button</a>
+</body></html>
