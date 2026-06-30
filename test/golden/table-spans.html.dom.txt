@@ -44,4 +44,21 @@
             "c"
           <td>
             "d"
+      <h3>
+        "explicit column width"
+      <table>
+        <tr>
+          <td style="width:48px">
+            "Time"
+          <td>
+            "Temp"
+          <td>
+            "Feels like"
+        <tr>
+          <td>
+            "00:00"
+          <td>
+            "16°"
+          <td>
+            "15°"
 --- title: "table spans"

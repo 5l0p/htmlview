@@ -1,0 +1,9 @@
+<!DOCTYPE html>
+<!-- Regression test: a table cell with an explicit CSS width used to be
+     ignored -- all columns got an even share of the table width regardless.
+     See the column-width pass in layout_table (layout.cpp). -->
+<html><body>
+<table style="width:400px">
+<tr><td style="width:48px;background:#ff0000">A</td><td style="background:#00ff00">B</td></tr>
+</table>
+</body></html>

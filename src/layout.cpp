@@ -704,13 +704,36 @@ std::unique_ptr<LayoutBox> layout_table(const StyleMap& sm, FontCache& fonts,
     // edge (ncols+1 / nrows+1 gaps total), the classic HTML attribute --
     // there's no CSS equivalent (border-spacing) implemented yet.
     float spacing = (float)attr_int(el, "cellspacing", 0);
-    float colw = std::max(0.0f, content_width - spacing * (ncols + 1)) / ncols;
+
+    // Column widths: a single-column cell with an explicit CSS width sets
+    // that column's width; the rest of the table's width is split evenly
+    // across the remaining columns. No intrinsic/content-based sizing.
+    std::vector<float> colw(ncols, 0.0f);
+    std::vector<bool> colw_set(ncols, false);
+    for (const Cell& ci : cells)
+        if (ci.cspan == 1 && !ci.st->width.is_auto()) {
+            colw[ci.col] = std::max(colw[ci.col], ci.st->width.resolve(content_width, 0));
+            colw_set[ci.col] = true;
+        }
+    float fixed_total = 0;
+    int auto_cols = 0;
+    for (int c = 0; c < ncols; ++c) {
+        if (colw_set[c]) fixed_total += colw[c];
+        else ++auto_cols;
+    }
+    float remaining = std::max(0.0f, content_width - spacing * (ncols + 1) - fixed_total);
+    float even_w = auto_cols > 0 ? remaining / auto_cols : 0.0f;
+    for (int c = 0; c < ncols; ++c)
+        if (!colw_set[c]) colw[c] = even_w;
+    std::vector<float> colx(ncols + 1);
+    colx[0] = content_x + spacing;
+    for (int c = 0; c < ncols; ++c) colx[c + 1] = colx[c] + colw[c] + spacing;
+    auto cell_width = [&](int col, int cspan) { return colx[col + cspan] - colx[col] - spacing; };
 
     // Pass 1: lay out each cell at y=0 to learn its natural height.
     for (Cell& ci : cells)
         ci.box = layout_block(sm, fonts, resolve_image, img_cache, ci.el, *ci.st,
-                              content_x + spacing + ci.col * (colw + spacing), 0,
-                              ci.cspan * colw + (ci.cspan - 1) * spacing);
+                              colx[ci.col], 0, cell_width(ci.col, ci.cspan));
 
     // Row heights: single-row cells set the base; rowspanning cells push any
     // overflow into their last spanned row.

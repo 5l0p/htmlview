@@ -47,35 +47,49 @@ for f in test/*.html test/*.htm; do
     done
 done
 
-# Pixel regression check for the anonymous-inline-box paint bug (see
-# Kind::Anonymous handling in paint.cpp): an anonymous box used to repaint
-# its containing block's border once per whitespace gap between block
-# siblings, instead of only at the real box's own edges. Skipped (not
-# failed) when there's no X display to render against, or no PIL to decode
-# the PNG with — neither is a hard dependency of the renderer itself.
-f=test/regression-anon-box.html
-name=$(basename "$f")
-total=$((total + 1))
-png=$(mktemp --suffix=.png)
-render_err=$("$BIN" --render-to "$png" "$f" 2>&1 >/dev/null)
-if printf '%s' "$render_err" | grep -q "cannot open X display"; then
-    echo "SKIP   $name [render] (no X display)"
-    total=$((total - 1))
-elif ! border_rows=$(python3 -c "
+# Pixel regression checks for layout/paint bugs --dump-dom/-style can't see
+# (they don't run layout or paint at all). Skipped, not failed, when there's
+# no X display to render against or no PIL to decode the PNG with — neither
+# is a hard dependency of the renderer itself.
+pixel_check() {  # fixture, python expr (sets `result`), expected, description
+    f="test/$1" py="$2" expected="$3" desc="$4"
+    name=$(basename "$f")
+    total=$((total + 1))
+    png=$(mktemp --suffix=.png)
+    render_err=$("$BIN" --render-to "$png" "$f" 2>&1 >/dev/null)
+    if printf '%s' "$render_err" | grep -q "cannot open X display"; then
+        echo "SKIP   $name [render] (no X display)"
+        total=$((total - 1))
+    elif ! result=$(python3 -c "
 from PIL import Image
 im = Image.open('$png').convert('RGB')
 w, h = im.size
-print(sum(1 for y in range(h) if im.getpixel((w // 2, y)) != (255, 255, 255)))
+$py
+print(result)
 " 2>/dev/null); then
-    echo "SKIP   $name [render] (python3/PIL unavailable)"
-    total=$((total - 1))
-elif [ "$border_rows" != "2" ]; then
-    echo "FAIL   $name [render] (expected 2 border rows at the outer box's" \
-         "top/bottom edge, got $border_rows -- a border is being repainted" \
-         "somewhere it shouldn't be)"
-    fail=$((fail + 1))
-fi
-rm -f "$png"
+        echo "SKIP   $name [render] (python3/PIL unavailable)"
+        total=$((total - 1))
+    elif [ "$result" != "$expected" ]; then
+        echo "FAIL   $name [render] ($desc: expected $expected, got $result)"
+        fail=$((fail + 1))
+    fi
+    rm -f "$png"
+}
+
+# Anonymous-inline-box paint bug (Kind::Anonymous in paint.cpp): an
+# anonymous box used to repaint its containing block's border once per
+# whitespace gap between block siblings, instead of only at the real box's
+# own edges -- expect exactly the outer box's own top/bottom border rows.
+pixel_check regression-anon-box.html \
+    'result = sum(1 for y in range(h) if im.getpixel((w // 2, y)) != (255, 255, 255))' \
+    2 "non-white pixel rows down the vertical center"
+
+# Column-width bug (layout_table in layout.cpp): an explicit CSS width on a
+# table cell used to be ignored when sizing columns, leaving a gap before
+# the next column starts at its old even-split position.
+pixel_check regression-col-width.html \
+    "result = im.getpixel((60, 10))" \
+    "(0, 255, 0)" "pixel just past the 48px first column"
 
 if [ -n "${UPDATE:-}" ]; then
     echo "updated goldens for $total cases"

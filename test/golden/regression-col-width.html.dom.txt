@@ -1,0 +1,10 @@
+<#document>
+  <html>
+    <body>
+      <table style="width:400px">
+        <tr>
+          <td style="width:48px;background:#ff0000">
+            "A"
+          <td style="background:#00ff00">
+            "B"
+--- title: "test/regression-col-width.html"
