@@ -31,4 +31,17 @@
             "South"
           <td colspan="2">
             "merged Q1+Q2 (colspan=2)"
+      <h3>
+        "cellspacing"
+      <table cellspacing="10">
+        <tr>
+          <td>
+            "a"
+          <td>
+            "b"
+        <tr>
+          <td>
+            "c"
+          <td>
+            "d"
 --- title: "table spans"

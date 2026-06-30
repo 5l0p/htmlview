@@ -194,7 +194,7 @@ bool is_known_attr(const std::string& key) {
     static const std::set<std::string> kKnown = {
         "id", "class", "style", "href", "name", "src", "width", "height",
         "alt", "type", "value", "checked", "size", "cols", "rows",
-        "selected", "action", "method", "colspan", "rowspan",
+        "selected", "action", "method", "colspan", "rowspan", "cellspacing",
         "http-equiv", "content", "rel",
     };
     return kKnown.count(key) != 0;

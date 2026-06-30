@@ -700,12 +700,17 @@ std::unique_ptr<LayoutBox> layout_table(const StyleMap& sm, FontCache& fonts,
         }
         ncols = std::max(ncols, std::max(col, (int)occ[r].size()));
     }
-    float colw = content_width / ncols;
+    // cellspacing: a gap between every cell and around the table's outer
+    // edge (ncols+1 / nrows+1 gaps total), the classic HTML attribute --
+    // there's no CSS equivalent (border-spacing) implemented yet.
+    float spacing = (float)attr_int(el, "cellspacing", 0);
+    float colw = std::max(0.0f, content_width - spacing * (ncols + 1)) / ncols;
 
     // Pass 1: lay out each cell at y=0 to learn its natural height.
     for (Cell& ci : cells)
         ci.box = layout_block(sm, fonts, resolve_image, img_cache, ci.el, *ci.st,
-                              content_x + ci.col * colw, 0, ci.cspan * colw);
+                              content_x + spacing + ci.col * (colw + spacing), 0,
+                              ci.cspan * colw + (ci.cspan - 1) * spacing);
 
     // Row heights: single-row cells set the base; rowspanning cells push any
     // overflow into their last spanned row.
@@ -714,13 +719,13 @@ std::unique_ptr<LayoutBox> layout_table(const StyleMap& sm, FontCache& fonts,
         if (ci.rspan == 1) rowh[ci.row] = std::max(rowh[ci.row], ci.box->height);
     for (const Cell& ci : cells)
         if (ci.rspan > 1) {
-            float have = 0;
+            float have = (ci.rspan - 1) * spacing;
             for (int dr = 0; dr < ci.rspan; ++dr) have += rowh[ci.row + dr];
             if (ci.box->height > have) rowh[ci.row + ci.rspan - 1] += ci.box->height - have;
         }
     std::vector<float> row_y(nrows + 1);
-    row_y[0] = content_top;
-    for (int r = 0; r < nrows; ++r) row_y[r + 1] = row_y[r] + rowh[r];
+    row_y[0] = content_top + spacing;
+    for (int r = 0; r < nrows; ++r) row_y[r + 1] = row_y[r] + rowh[r] + spacing;
 
     // Build row boxes, then move each cell into its starting row at final y/height.
     std::vector<LayoutBox*> rowbox(nrows);
@@ -737,7 +742,7 @@ std::unique_ptr<LayoutBox> layout_table(const StyleMap& sm, FontCache& fonts,
     }
     for (Cell& ci : cells) {
         translate_box(ci.box.get(), row_y[ci.row]);  // from y=0 to final row top
-        float h = 0;
+        float h = (ci.rspan - 1) * spacing;
         for (int dr = 0; dr < ci.rspan; ++dr) h += rowh[ci.row + dr];
         ci.box->height = h;  // stretch across spanned rows
         rowbox[ci.row]->add(std::move(ci.box));
