@@ -1,0 +1,8 @@
+--- 0 CSS rules parsed
+<#document>
+  <html>  [block font=sans/16px color=#000000 bg=transparent m=0,0,0,0 p=0,0,0,0 bw=0 deco=none]
+    <body>  [block font=sans/16px color=#000000 bg=transparent m=0,0,0,0 p=0,0,0,0 bw=0 deco=none]
+      <table>  [table font=sans/16px color=#000000 bg=transparent m=0,0,0,0 p=0,0,0,0 bw=0 deco=none]
+        <tr>  [table-row font=sans/16px color=#000000 bg=transparent m=0,0,0,0 p=0,0,0,0 bw=0 deco=none]
+          <td>  [table-cell font=sans/16px color=#000000 bg=#ff0000 m=0,0,0,0 p=20,20,20,20 bw=0 deco=none]
+          <td>  [table-cell font=sans/16px color=#000000 bg=#00ff00 m=0,0,0,0 p=2,2,2,2 bw=0 deco=none]

@@ -88,8 +88,16 @@ pixel_check regression-anon-box.html \
 # table cell used to be ignored when sizing columns, leaving a gap before
 # the next column starts at its old even-split position.
 pixel_check regression-col-width.html \
+    "result = im.getpixel((150, 10))" \
+    "(0, 255, 0)" "pixel well past the 48px first column"
+
+# Column width vs. padding (layout_table in layout.cpp): the column-width
+# pass treated a cell's explicit CSS width as the whole slot, but CSS width
+# is content-box only -- a padded cell rendered wider than its slot and
+# overflowed into the next column.
+pixel_check regression-col-padding.html \
     "result = im.getpixel((60, 10))" \
-    "(0, 255, 0)" "pixel just past the 48px first column"
+    "(255, 0, 0)" "pixel inside the 48px+40px-padding first column"
 
 if [ -n "${UPDATE:-}" ]; then
     echo "updated goldens for $total cases"

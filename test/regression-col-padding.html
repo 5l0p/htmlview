@@ -1,0 +1,14 @@
+<!DOCTYPE html>
+<!-- Regression test: layout_table's column-width pass used a cell's CSS
+     width as the full column slot, but CSS width is content-box only -- a
+     cell with non-trivial padding rendered wider than its reserved column
+     slot and overflowed into the next column (e.g. examples/templates'
+     queue position number overlapping the track title next to it). -->
+<html><body>
+<table style="width:400px">
+<tr>
+  <td style="width:48px;padding:20px;background:#ff0000"></td>
+  <td style="background:#00ff00"></td>
+</tr>
+</table>
+</body></html>

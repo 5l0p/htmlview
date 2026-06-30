@@ -708,11 +708,17 @@ std::unique_ptr<LayoutBox> layout_table(const StyleMap& sm, FontCache& fonts,
     // Column widths: a single-column cell with an explicit CSS width sets
     // that column's width; the rest of the table's width is split evenly
     // across the remaining columns. No intrinsic/content-based sizing.
+    // CSS width is content-box width, but the column slot has to reserve
+    // the cell's full outer (border) box, or its padding/border pushes the
+    // rendered cell wider than its slot and it overflows into the next one.
     std::vector<float> colw(ncols, 0.0f);
     std::vector<bool> colw_set(ncols, false);
     for (const Cell& ci : cells)
         if (ci.cspan == 1 && !ci.st->width.is_auto()) {
-            colw[ci.col] = std::max(colw[ci.col], ci.st->width.resolve(content_width, 0));
+            float outer = ci.st->width.resolve(content_width, 0)
+                         + ci.st->padding.left + ci.st->padding.right
+                         + ci.st->border.left.width + ci.st->border.right.width;
+            colw[ci.col] = std::max(colw[ci.col], outer);
             colw_set[ci.col] = true;
         }
     float fixed_total = 0;

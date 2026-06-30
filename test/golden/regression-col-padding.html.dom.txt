@@ -1,0 +1,8 @@
+<#document>
+  <html>
+    <body>
+      <table style="width:400px">
+        <tr>
+          <td style="width:48px;padding:20px;background:#ff0000">
+          <td style="background:#00ff00">
+--- title: "test/regression-col-padding.html"
