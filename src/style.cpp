@@ -175,7 +175,8 @@ std::string parse_url(const std::string& value) {
     return url;
 }
 
-void apply_decl(ComputedStyle& s, const Declaration& d) {
+void apply_decl(ComputedStyle& s, const Declaration& d,
+                std::vector<std::string>* errors = nullptr) {
     const std::string& p = d.property;
     const std::string& v = d.value;
     float em = s.font_size;
@@ -277,6 +278,35 @@ void apply_decl(ComputedStyle& s, const Declaration& d) {
         s.width = parse_length(v, em);
     } else if (p == "height") {
         s.height = parse_length(v, em);
+    } else if (p == "line-height") {
+        std::string lv = to_lower(trim(v));
+        if (lv == "normal") { s.line_height = Length{}; }
+        else {
+            // Unitless number: treat as a multiplier (store as percent of font-size).
+            float f; char* end = nullptr;
+            f = std::strtof(lv.c_str(), &end);
+            std::string unit = trim(lv.substr(end - lv.c_str()));
+            if (unit.empty()) { s.line_height = Length{Length::Percent, f * 100.0f}; }
+            else { s.line_height = parse_length(lv, em); }
+        }
+    } else if (p == "border-collapse") {
+        s.border_collapse = (to_lower(trim(v)) == "collapse");
+    } else if (p == "white-space") {
+        std::string lv = to_lower(trim(v));
+        s.preserve_ws = (lv == "pre" || lv == "pre-wrap" || lv == "pre-line");
+    } else if (p == "vertical-align") {
+        std::string lv = to_lower(trim(v));
+        if (lv == "sub") s.vertical_align = VerticalAlign::Sub;
+        else if (lv == "super") s.vertical_align = VerticalAlign::Super;
+        else if (lv == "text-top") s.vertical_align = VerticalAlign::TextTop;
+        else if (lv == "text-bottom") s.vertical_align = VerticalAlign::TextBottom;
+        else if (lv == "middle") s.vertical_align = VerticalAlign::Middle;
+        else if (lv == "top") s.vertical_align = VerticalAlign::Top;
+        else if (lv == "bottom") s.vertical_align = VerticalAlign::Bottom;
+        else s.vertical_align = VerticalAlign::Baseline;
+    } else if (errors && !p.empty() && p[0] != '-') {
+        // Skip vendor-prefixed properties (-webkit-, -moz-, etc.) silently.
+        errors->push_back("css: unknown property '" + p + "'");
     }
 }
 
@@ -292,6 +322,7 @@ ComputedStyle ua_defaults(const Element& e, const ComputedStyle& parent) {
     s.border = Border{};
     s.text_decoration = TextDecoration::NoDecoration;
     s.width = s.height = Length{};
+    s.border_collapse = false;
     s.display = DisplayType::Inline;
 
     auto block = [&] { s.display = DisplayType::Block; };
@@ -404,7 +435,8 @@ bool selector_matches(const Selector& sel, const Element& e, const Element* hove
 }
 
 void resolve_node(const Element& e, const ComputedStyle& parent,
-                  const std::vector<Rule>& author, const Element* hovered, StyleMap& out) {
+                  const std::vector<Rule>& author, const Element* hovered, StyleMap& out,
+                  std::vector<std::string>* errors) {
     ComputedStyle s = ua_defaults(e, parent);
 
     // Author rules: gather matching declaration blocks with (specificity, order).
@@ -420,29 +452,30 @@ void resolve_node(const Element& e, const ComputedStyle& parent,
         return a.spec != b.spec ? a.spec < b.spec : a.order < b.order;
     });
     for (const Match& m : matches)
-        for (const Declaration& d : *m.decls) apply_decl(s, d);
+        for (const Declaration& d : *m.decls) apply_decl(s, d, errors);
 
     // Inline style attribute wins.
     if (const std::string* inl = e.attr("style"))
-        for (const Declaration& d : parse_inline_style(*inl)) apply_decl(s, d);
+        for (const Declaration& d : parse_inline_style(*inl)) apply_decl(s, d, errors);
 
     out[&e] = s;
 
     for (const auto& child : e.children)
         if (child->is_element())
-            resolve_node(*static_cast<const Element*>(child.get()), s, author, hovered, out);
+            resolve_node(*static_cast<const Element*>(child.get()), s, author, hovered, out,
+                         errors);
 }
 
 }  // namespace
 
 StyleMap resolve_styles(const Document& doc, const std::vector<Rule>& author,
-                        const Element* hovered) {
+                        const Element* hovered, std::vector<std::string>* errors) {
     StyleMap out;
     ComputedStyle root_default;  // initial values, 16px black sans
     for (const auto& child : doc.root->children)
         if (child->is_element())
             resolve_node(*static_cast<const Element*>(child.get()), root_default, author,
-                         hovered, out);
+                         hovered, out, errors);
     return out;
 }
 
@@ -532,6 +565,12 @@ void dump_styles(const Node* node, const StyleMap& sm, std::string& out, int ind
         out += "\n";
         for (const auto& c : e->children) dump_styles(c.get(), sm, out, indent + 1);
     }
+}
+
+void dump_errors(std::vector<std::string> errors, std::string& out) {
+    std::sort(errors.begin(), errors.end());
+    errors.erase(std::unique(errors.begin(), errors.end()), errors.end());
+    for (const auto& e : errors) { out += e; out += '\n'; }
 }
 
 }  // namespace hv

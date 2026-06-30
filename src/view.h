@@ -14,13 +14,16 @@ namespace hv {
 // the viewer runs it (classic CGI, re-spawned per request) for navigation and
 // GET form submissions instead of reading files. `refresh_seconds` > 0 reloads
 // the *current* page on that interval (a page's own <meta refresh> overrides it).
+// `verbose` prints unrecognised CSS properties and unknown HTML tags to stderr
+// each time a page is loaded.
 int run_window(const std::string& target0, const std::string& cgi_program = "",
-               int refresh_seconds = 0);
+               int refresh_seconds = 0, bool verbose = false);
 
 // Headless operation on `target` (a file path, or a request path in CGI mode):
 // dump the DOM and/or computed styles to stdout, and/or rasterise to a PNG at
 // `render_to`. `cgi_program` empty -> file mode. Returns 0 on success.
 int run_headless(const std::string& target, const std::string& cgi_program, int width,
-                 const std::string& render_to, bool dump_dom, bool dump_style);
+                 const std::string& render_to, bool dump_dom, bool dump_style,
+                 bool dump_errors = false);
 
 }  // namespace hv

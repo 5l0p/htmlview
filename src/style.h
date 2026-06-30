@@ -5,6 +5,7 @@
 #include <functional>
 #include <string>
 #include <unordered_map>
+#include <vector>
 
 #include "css.h"
 #include "html_parser.h"
@@ -25,6 +26,7 @@ enum class FontWeight { Normal, Bold };
 enum class ListStyle { Disc, Circle, Square, Decimal, NoMarker };
 enum class TextAlign { Left, Center, Right };
 enum class TextDecoration { NoDecoration, Underline };
+enum class VerticalAlign { Baseline, Sub, Super, TextTop, TextBottom, Middle, Top, Bottom };
 
 struct Edges {  // top, right, bottom, left (CSS order)
     float top = 0, right = 0, bottom = 0, left = 0;
@@ -81,7 +83,10 @@ struct ComputedStyle {
     bool margin_left_auto = false, margin_right_auto = false;  // for centering
     Border border;
     TextDecoration text_decoration = TextDecoration::NoDecoration;
+    VerticalAlign vertical_align = VerticalAlign::Baseline;
     Length width, height;        // default: auto
+    Length line_height;          // auto = normal (~1.2x); Px = absolute; Percent = of font-size
+    bool border_collapse = false;
 };
 
 using StyleMap = std::unordered_map<const Element*, ComputedStyle>;
@@ -90,8 +95,12 @@ using StyleMap = std::unordered_map<const Element*, ComputedStyle>;
 // default stylesheet, the author rules, and inline style="" attributes.
 // `hovered` (if non-null) activates `:hover` rules for that element and its
 // ancestors, so the cascade reflects the current pointer position.
+// `errors`, if non-null, receives one entry per unrecognised CSS property
+// (vendor-prefixed names are silently skipped). Entries may be duplicated;
+// call dump_errors() to sort and deduplicate before display.
 StyleMap resolve_styles(const Document& doc, const std::vector<Rule>& author,
-                        const Element* hovered = nullptr);
+                        const Element* hovered = nullptr,
+                        std::vector<std::string>* errors = nullptr);
 
 // True if any author rule uses a `:hover` pseudo-class (lets callers skip the
 // re-resolve-on-hover machinery when it can have no effect).
@@ -109,5 +118,8 @@ bool parse_length_px(const std::string& in, float em_base, float& out);
 
 // Print resolved styles for --dump-style.
 void dump_styles(const Node* root, const StyleMap& sm, std::string& out, int indent = 0);
+
+// Sort, deduplicate, and format an errors vector for --dump-errors output.
+void dump_errors(std::vector<std::string> errors, std::string& out);
 
 }  // namespace hv

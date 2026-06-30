@@ -33,6 +33,7 @@ struct Page {
     Document doc;
     std::vector<Rule> rules;
     StyleMap styles;
+    std::vector<std::string> errors;  // CSS + DOM parse warnings
     FormState form;         // mutable control state, keyed by Element
     std::string title;
     bool has_hover = false;  // stylesheet uses :hover -> track pointer for restyle
@@ -186,6 +187,16 @@ void parse_meta_refresh(const Node* n, Page& pg) {
         parse_meta_refresh(c.get(), pg);
 }
 
+// Walk the DOM and record elements with tags we don't recognise.
+void collect_dom_errors(const Node* n, std::vector<std::string>& errors) {
+    if (!n->is_element()) return;
+    const auto* e = static_cast<const Element*>(n);
+    // Skip synthetic structure nodes (e.g. the "#document" root).
+    if (e->tag == Tag::Unknown && !e->name.empty() && e->name[0] != '#')
+        errors.push_back("html: unknown tag <" + e->name + ">");
+    for (const auto& c : e->children) collect_dom_errors(c.get(), errors);
+}
+
 Page build_page(std::string src, std::string base_dir, const std::string& title_fallback,
                 const FetchFn& fetch) {
     Page pg;
@@ -196,7 +207,8 @@ Page build_page(std::string src, std::string base_dir, const std::string& title_
         pg.doc.base_dir = b;
     pg.rules = parse_css(gather_css(pg.doc, fetch));
     pg.has_hover = stylesheet_has_hover(pg.rules);
-    pg.styles = resolve_styles(pg.doc, pg.rules);
+    pg.styles = resolve_styles(pg.doc, pg.rules, nullptr, &pg.errors);
+    collect_dom_errors(pg.doc.root.get(), pg.errors);
     init_form_state(pg.doc.root.get(), pg.form);
     parse_meta_refresh(pg.doc.root.get(), pg);
     pg.title = pg.doc.title.empty() ? title_fallback : pg.doc.title;
@@ -530,7 +542,7 @@ const LayoutBox* find_link(const LayoutBox* box, float px, float py) {
 }  // namespace
 
 int run_window(const std::string& target0, const std::string& cgi_program,
-               int refresh_seconds) {
+               int refresh_seconds, bool verbose) {
     bool cgi_mode = !cgi_program.empty();
     auto load_target = [&](const std::string& target) -> Page {
         return cgi_mode ? load_cgi_page(cgi_program, target) : load_file_page(target);
@@ -651,6 +663,11 @@ int run_window(const std::string& target0, const std::string& cgi_program,
         if (!np.ok) return false;
         page = std::move(np);
         current_target = target;
+        if (verbose && !page.errors.empty()) {
+            std::string out;
+            dump_errors(page.errors, out);
+            std::fputs(out.c_str(), stderr);
+        }
         XStoreName(dpy, win, page.title.c_str());
         scroll_y = 0;
         hovered = nullptr;
@@ -1037,7 +1054,8 @@ int render_page_png(const Page& page, int width, const std::string& path) {
 }
 
 int run_headless(const std::string& target, const std::string& cgi_program, int width,
-                 const std::string& render_to, bool want_dom, bool want_style) {
+                 const std::string& render_to, bool want_dom, bool want_style,
+                 bool want_errors) {
     Page page = cgi_program.empty() ? load_file_page(target)
                                     : load_cgi_page(cgi_program, target);
     if (!page.ok) return 1;
@@ -1053,6 +1071,12 @@ int run_headless(const std::string& target, const std::string& cgi_program, int 
         std::printf("--- %zu CSS rules parsed\n", page.rules.size());
         std::string out;
         dump_styles(page.doc.root.get(), page.styles, out);
+        std::fputs(out.c_str(), stdout);
+        return 0;
+    }
+    if (want_errors) {
+        std::string out;
+        dump_errors(page.errors, out);
         std::fputs(out.c_str(), stdout);
         return 0;
     }

@@ -4,6 +4,8 @@
 //   htmlview <file.html>                 open a window and render
 //   htmlview --render-to out.png <file>  headless: rasterise to a PNG
 //   htmlview --dump-dom / --dump-style   print the DOM / computed styles
+//   htmlview --dump-errors               print unrecognised CSS props + unknown HTML tags
+//   htmlview --verbose                   print errors to stderr on each page load
 //   htmlview --cgi-bin "PROG" [/start]   render a CGI backend's output
 //
 // The headless flags (--render-to / --dump-*) compose with --cgi-bin: they act
@@ -20,7 +22,8 @@ namespace {
 
 int usage() {
     std::fprintf(stderr,
-                 "usage: htmlview [--dump-dom] [--dump-style] [--render-to FILE.png]\n"
+                 "usage: htmlview [--dump-dom] [--dump-style] [--dump-errors]\n"
+                 "                [--render-to FILE.png] [--verbose]\n"
                  "                [--width N] [--refresh SECONDS]\n"
                  "                [--cgi-bin PROGRAM] [PATH | START_PATH]\n");
     return 2;
@@ -32,13 +35,15 @@ int main(int argc, char** argv) {
     const char* path = nullptr;
     const char* render_to = nullptr;
     const char* cgi = nullptr;
-    bool dump_dom = false, dump_style = false;
+    bool dump_dom = false, dump_style = false, dump_errors = false, verbose = false;
     int width = 800;
     int refresh = 0;
 
     for (int i = 1; i < argc; ++i) {
         if (std::strcmp(argv[i], "--dump-dom") == 0) dump_dom = true;
         else if (std::strcmp(argv[i], "--dump-style") == 0) dump_style = true;
+        else if (std::strcmp(argv[i], "--dump-errors") == 0) dump_errors = true;
+        else if (std::strcmp(argv[i], "--verbose") == 0) verbose = true;
         else if (std::strcmp(argv[i], "--render-to") == 0 && i + 1 < argc) render_to = argv[++i];
         else if (std::strcmp(argv[i], "--width") == 0 && i + 1 < argc) width = std::atoi(argv[++i]);
         else if (std::strcmp(argv[i], "--cgi-bin") == 0 && i + 1 < argc) cgi = argv[++i];
@@ -47,18 +52,18 @@ int main(int argc, char** argv) {
         else path = argv[i];
     }
 
-    bool headless = dump_dom || dump_style || render_to;
+    bool headless = dump_dom || dump_style || dump_errors || render_to;
 
     if (headless) {
         // File mode needs a path; CGI mode defaults the start path to "/".
         if (!cgi && !path) return usage();
         std::string target = path ? path : "/";
         return hv::run_headless(target, cgi ? cgi : "", width,
-                                render_to ? render_to : "", dump_dom, dump_style);
+                                render_to ? render_to : "", dump_dom, dump_style, dump_errors);
     }
 
     // Live window: CGI start path defaults to "/", file mode requires a path.
-    if (cgi) return hv::run_window(path ? path : "/", cgi, refresh);
+    if (cgi) return hv::run_window(path ? path : "/", cgi, refresh, verbose);
     if (!path) return usage();
-    return hv::run_window(path, "", refresh);
+    return hv::run_window(path, "", refresh, verbose);
 }
