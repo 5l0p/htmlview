@@ -17,6 +17,7 @@ Pure Makefile, C++17. Requires dev packages for `x11 xft xrender imlib2 fontconf
 
 ```sh
 make            # builds ./htmlview
+make static     # builds a fully static ./htmlview (no shared libs at runtime)
 make run        # builds and opens test/kitchen-sink.html
 make clean
 ```
