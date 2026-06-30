@@ -22,8 +22,10 @@ XRenderColor to_xrender(const RGBA& c) {
 }
 }  // namespace
 
-Painter::Painter(Display* dpy, Drawable target, Visual* visual, Colormap cmap, FontCache& fonts)
-    : dpy_(dpy), target_(target), visual_(visual), cmap_(cmap), fonts_(fonts) {
+Painter::Painter(Display* dpy, Drawable target, Visual* visual, Colormap cmap, FontCache& fonts,
+                 ImgPixCache img_cache)
+    : dpy_(dpy), target_(target), visual_(visual), cmap_(cmap), fonts_(fonts),
+      img_cache_(std::move(img_cache)) {
     XRenderPictFormat* fmt = XRenderFindVisualFormat(dpy_, visual_);
     pic_ = XRenderCreatePicture(dpy_, target_, fmt, 0, nullptr);
     xft_ = XftDrawCreate(dpy_, target_, visual_, cmap_);
@@ -63,14 +65,25 @@ void Painter::stroke_rect(float x, float y, float w, float h, const RGBA& c) {
 }
 
 void Painter::paint_bg_image(const std::string& path, float x, float y, float w, float h) {
-    Imlib_Image im = imlib_load_image(path.c_str());
+    Imlib_Image im = nullptr;
+    if (img_cache_) {
+        auto& map = *img_cache_;
+        auto it = map.find(path);
+        if (it != map.end()) {
+            im = it->second;
+        } else {
+            im = imlib_load_image(path.c_str());
+            if (im) map[path] = im;
+        }
+    } else {
+        im = imlib_load_image(path.c_str());
+    }
     if (!im) return;
     imlib_context_set_image(im);
     int iw = imlib_image_get_width(), ih = imlib_image_get_height();
     if (iw > 0 && ih > 0) {
         imlib_context_set_drawable(target_);
         imlib_context_set_anti_alias(1);
-        // background-repeat: repeat (default); partial tiles clipped at the edges.
         for (int ty = (int)y; ty < (int)(y + h); ty += ih)
             for (int tx = (int)x; tx < (int)(x + w); tx += iw) {
                 int dw = std::min(iw, (int)(x + w) - tx);
@@ -78,7 +91,7 @@ void Painter::paint_bg_image(const std::string& path, float x, float y, float w,
                 imlib_render_image_part_on_drawable_at_size(0, 0, dw, dh, tx, ty, dw, dh);
             }
     }
-    imlib_free_image();
+    if (!img_cache_) imlib_free_image();
 }
 
 void Painter::paint_border_side(float x, float y, float w, float h, bool horizontal,
@@ -119,7 +132,11 @@ void Painter::paint_border_side(float x, float y, float w, float h, bool horizon
 void Painter::paint_box(const LayoutBox* box, float ox, float oy) {
     float x = box->x + ox, y = box->y + oy;
 
-    if (box->style) {
+    // Skip drawing for boxes entirely outside the viewport, but still recurse
+    // into children — they may be absolutely/relatively positioned and in view.
+    bool in_view = (y + box->height >= 0.f && y < (float)height_);
+
+    if (in_view && box->style) {
         const ComputedStyle& s = *box->style;
         if (!s.background_color.transparent())
             fill_rect(x, y, box->width, box->height, s.background_color);
@@ -135,7 +152,7 @@ void Painter::paint_box(const LayoutBox* box, float ox, float oy) {
         }
     }
 
-    if (box->kind == LayoutBox::Kind::Marker) {
+    if (in_view && box->kind == LayoutBox::Kind::Marker) {
         XftColor* col = xft_color(box->color);
         XSetForeground(dpy_, gc_, col->pixel);
         int s = std::max(4, (int)(box->width * 0.42f));  // shape diameter/side
@@ -156,8 +173,20 @@ void Painter::paint_box(const LayoutBox* box, float ox, float oy) {
         }
     }
 
-    if (box->kind == LayoutBox::Kind::Image && !box->img_src.empty()) {
-        Imlib_Image im = imlib_load_image(box->img_src.c_str());
+    if (in_view && box->kind == LayoutBox::Kind::Image && !box->img_src.empty()) {
+        Imlib_Image im = nullptr;
+        if (img_cache_) {
+            auto& map = *img_cache_;
+            auto it = map.find(box->img_src);
+            if (it != map.end()) {
+                im = it->second;
+            } else {
+                im = imlib_load_image(box->img_src.c_str());
+                if (im) map[box->img_src] = im;
+            }
+        } else {
+            im = imlib_load_image(box->img_src.c_str());
+        }
         if (im) {
             imlib_context_set_image(im);
             int iw = imlib_image_get_width(), ih = imlib_image_get_height();
@@ -165,15 +194,15 @@ void Painter::paint_box(const LayoutBox* box, float ox, float oy) {
             imlib_context_set_anti_alias(1);
             imlib_render_image_part_on_drawable_at_size(
                 0, 0, iw, ih, (int)x, (int)y, (int)box->width, (int)box->height);
-            imlib_free_image();
+            if (!img_cache_) imlib_free_image();
         }
     }
 
-    if (box->kind == LayoutBox::Kind::Widget) {
+    if (in_view && box->kind == LayoutBox::Kind::Widget) {
         paint_widget(box, x, y);
     }
 
-    if (box->kind == LayoutBox::Kind::TextRun && box->font && !box->text.empty()) {
+    if (in_view && box->kind == LayoutBox::Kind::TextRun && box->font && !box->text.empty()) {
         XftColor* col = xft_color(box->color);
         int baseline = (int)(y + box->font->ascent);
         XftDrawStringUtf8(xft_, col, box->font, (int)x, baseline,
@@ -350,6 +379,7 @@ void Painter::draw_dropdown(const LayoutBox* sel, int selected, float oy) {
 void Painter::paint(const LayoutBox* root, int width, int height,
                     float scroll_x, float scroll_y, const FormView& form) {
     form_ = &form;
+    height_ = height;
     // The body background propagates to the whole canvas (incl. the body
     // margin area), matching browser behaviour; default to white otherwise.
     RGBA canvas{255, 255, 255, 255};

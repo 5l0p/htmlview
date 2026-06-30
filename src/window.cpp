@@ -569,6 +569,9 @@ int run_window(const std::string& target0, const std::string& cgi_program,
 
     Pixmap buffer = XCreatePixmap(dpy, win, width, height, depth);
     std::unique_ptr<LayoutBox> root;
+    ImgPixCache img_cache = std::make_shared<std::map<std::string, Imlib_Image>>();
+    Pixmap page_buf = None;  // full-document off-screen pixmap (doc width × doc height)
+    bool page_dirty = true;  // rebuild page_buf before next blit
     float scroll_y = 0, doc_height = 0;
     const Element* hovered = nullptr;
     const Element* focused = nullptr;      // focused text-input element
@@ -583,7 +586,9 @@ int run_window(const std::string& target0, const std::string& cgi_program,
     std::string eff_refresh_url;
 
     auto relayout = [&]() {
-        root = layout_document(page.doc, page.styles, fonts, (float)width, page.resolve_image);
+        page_dirty = true;
+        root = layout_document(page.doc, page.styles, fonts, (float)width, page.resolve_image,
+                               img_cache);
         doc_height = root ? root->height : 0;
     };
     // Re-run the cascade with the current hover state, then relayout (layout
@@ -593,12 +598,27 @@ int run_window(const std::string& target0, const std::string& cgi_program,
         relayout();
     };
     auto repaint = [&]() {
-        Painter p(dpy, buffer, visual, cmap, fonts);
-        FormView fv{&page.form, focused, focused != nullptr};
-        p.paint(root.get(), width, height, 0, scroll_y, fv);
+        // Rebuild the full-document pixmap only when content changed.
+        if (page_dirty || page_buf == None) {
+            if (page_buf != None) { XFreePixmap(dpy, page_buf); page_buf = None; }
+            // Make page_buf at least as tall as the viewport so XCopyArea always
+            // has a full height of source pixels even on short pages.
+            int ph = std::max(height, std::max(1, (int)std::ceil(doc_height)));
+            page_buf = XCreatePixmap(dpy, win, width, ph, depth);
+            {
+                Painter p(dpy, page_buf, visual, cmap, fonts, img_cache);
+                FormView fv{&page.form, focused, focused != nullptr};
+                p.paint(root.get(), width, ph, 0, 0, fv);
+            }
+            page_dirty = false;
+        }
+        // Blit the viewport-sized slice into the screen buffer.
+        XCopyArea(dpy, page_buf, buffer, gc, 0, (int)scroll_y, width, height, 0, 0);
+        // Draw any open dropdown as an overlay on the screen buffer.
         if (open_select && root) {
+            Painter overlay(dpy, buffer, visual, cmap, fonts);
             if (const LayoutBox* sb = find_box_for(root.get(), open_select))
-                p.draw_dropdown(sb, page.form[open_select].option, -scroll_y);
+                overlay.draw_dropdown(sb, page.form[open_select].option, -scroll_y);
         }
         XCopyArea(dpy, buffer, win, gc, 0, 0, width, height, 0, 0);
     };
@@ -633,6 +653,12 @@ int run_window(const std::string& target0, const std::string& cgi_program,
         hovered = nullptr;
         focused = nullptr;
         open_select = nullptr;
+        // Free cached images from the previous page.
+        for (auto& [path, im] : *img_cache) {
+            imlib_context_set_image(im);
+            imlib_free_image();
+        }
+        img_cache->clear();
         relayout();
         clamp_scroll();
         repaint();
@@ -779,11 +805,11 @@ int run_window(const std::string& target0, const std::string& cgi_program,
                     focused = nullptr;
                     if (w) {
                         switch (w->widget) {
-                            case WidgetKind::TextInput: focused = w->element; repaint(); break;
+                            case WidgetKind::TextInput: focused = w->element; page_dirty = true; repaint(); break;
                             case WidgetKind::Select: open_select = w->element; repaint(); break;
                             case WidgetKind::Checkbox:
                                 page.form[w->element].checked = !page.form[w->element].checked;
-                                repaint();
+                                page_dirty = true; repaint();
                                 break;
                             case WidgetKind::Radio: {
                                 const Element* form = enclosing_form(w->element);
@@ -793,7 +819,7 @@ int run_window(const std::string& target0, const std::string& cgi_program,
                                     select_radio(form, nm, w->element, page.form);
                                 else
                                     page.form[w->element].checked = true;
-                                repaint();
+                                page_dirty = true; repaint();
                                 break;
                             }
                             case WidgetKind::Button: {
@@ -820,17 +846,17 @@ int run_window(const std::string& target0, const std::string& cgi_program,
                                         erase_form(form);
                                         init_form_state(form, page.form);
                                     }
-                                    repaint();
+                                    page_dirty = true; repaint();
                                 } else { std::fprintf(stderr, "htmlview: button: %s\n", w->text.c_str());
-                                         repaint(); }
+                                         page_dirty = true; repaint(); }
                                 break;
                             }
-                            default: repaint(); break;
+                            default: page_dirty = true; repaint(); break;
                         }
                     } else if (const LayoutBox* link = find_link(root.get(), dx, dy)) {
                         navigate(link->href);
                     } else if (prev_focus) {
-                        repaint();  // clicked away: clear focus
+                        page_dirty = true; repaint();  // clicked away: clear focus
                     }
                 }
                 break;
@@ -855,13 +881,13 @@ int run_window(const std::string& target0, const std::string& cgi_program,
                             int idx = (it == f.end()) ? 0 : (int)(it - f.begin());
                             int dir = (ev.xkey.state & ShiftMask) ? -1 : 1;
                             focused = f[(idx + dir + (int)f.size()) % f.size()];
-                            repaint();
+                            page_dirty = true; repaint();
                         }
                     } else if (ks2 == XK_Escape) {
-                        focused = nullptr; repaint();
+                        focused = nullptr; page_dirty = true; repaint();
                     } else if (ks2 == XK_Return || ks2 == XK_KP_Enter) {
-                        if (textarea) { text += '\n'; repaint(); }
-                        else { focused = nullptr; repaint(); }  // single-line: blur
+                        if (textarea) { text += '\n'; page_dirty = true; repaint(); }
+                        else { focused = nullptr; page_dirty = true; repaint(); }  // single-line: blur
                     } else if (ks2 == XK_BackSpace) {
                         if (!text.empty()) {
                             // Remove a full UTF-8 code point: skip back over
@@ -871,10 +897,10 @@ int run_window(const std::string& target0, const std::string& cgi_program,
                                 text.pop_back();
                             if (!text.empty()) text.pop_back();
                         }
-                        repaint();
+                        page_dirty = true; repaint();
                     } else if (n > 0 && (unsigned char)buf[0] >= 0x20 && buf[0] != 0x7f) {
                         text.append(buf, n);
-                        repaint();
+                        page_dirty = true; repaint();
                     }
                     break;
                 }
@@ -915,6 +941,7 @@ int run_window(const std::string& target0, const std::string& cgi_program,
     }  // while (running)
 
     XFreeCursor(dpy, hand);
+    if (page_buf != None) XFreePixmap(dpy, page_buf);
     XFreePixmap(dpy, buffer);
     XFreeGC(dpy, gc);
     XDestroyWindow(dpy, win);
@@ -939,14 +966,16 @@ int render_page_png(const Page& page, int width, const std::string& path) {
     imlib_context_set_colormap(cmap);
 
     FontCache fonts(dpy, screen);
-    auto root = layout_document(page.doc, page.styles, fonts, (float)width, page.resolve_image);
+    ImgPixCache img_cache = std::make_shared<std::map<std::string, Imlib_Image>>();
+    auto root = layout_document(page.doc, page.styles, fonts, (float)width, page.resolve_image,
+                                img_cache);
     int height = std::max(1, (int)std::ceil(root ? root->height : 1));
 
     FormView fv{&page.form, nullptr, false};
 
     Pixmap buffer = XCreatePixmap(dpy, RootWindow(dpy, screen), width, height, depth);
     {
-        Painter p(dpy, buffer, visual, cmap, fonts);
+        Painter p(dpy, buffer, visual, cmap, fonts, img_cache);
         p.paint(root.get(), width, height, 0, 0, fv);
     }
     XSync(dpy, False);

@@ -23,7 +23,8 @@ struct FormView {
 
 class Painter {
 public:
-    Painter(Display* dpy, Drawable target, Visual* visual, Colormap cmap, FontCache& fonts);
+    Painter(Display* dpy, Drawable target, Visual* visual, Colormap cmap, FontCache& fonts,
+            ImgPixCache img_cache = nullptr);
     ~Painter();
 
     // Clear the whole target to white, then paint the tree translated by
@@ -56,6 +57,8 @@ private:
     XftDraw* xft_;
     GC gc_;
     std::map<uint32_t, XftColor> color_cache_;
+    ImgPixCache img_cache_;
+    int height_ = 0;  // viewport height, set in paint(), used for culling
     const FormView* form_ = nullptr;  // valid only during paint()
 };
 

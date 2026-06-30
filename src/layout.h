@@ -10,6 +10,9 @@
 // its BORDER box; margins are consumed by the parent during stacking.
 #pragma once
 
+#include <Imlib2.h>
+
+#include <map>
 #include <memory>
 #include <string>
 #include <unordered_map>
@@ -70,11 +73,16 @@ struct LayoutBox {
 // "" if it can't be obtained.
 using ResolveImg = std::function<std::string(const std::string& src)>;
 
+// Persistent cache of decoded Imlib2 images keyed by local file path.
+// Images are retained across repaints and freed only on page navigation.
+using ImgPixCache = std::shared_ptr<std::map<std::string, Imlib_Image>>;
+
 // Build + position the box tree for the document body at the given viewport
 // width. Returns the root box; total document height is root->height.
 std::unique_ptr<LayoutBox> layout_document(const Document& doc, const StyleMap& sm,
                                            FontCache& fonts, float viewport_width,
-                                           const ResolveImg& resolve_image);
+                                           const ResolveImg& resolve_image,
+                                           const ImgPixCache& img_cache);
 
 struct SelectOption {
     std::string label;  // visible text

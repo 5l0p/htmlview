@@ -145,14 +145,26 @@ bool widget_frag(const Element* e, const ComputedStyle& st, FontCache& fonts, Fr
     return false;
 }
 
-// Natural size of an image file via Imlib2 (Imlib context must be set up).
-bool image_size(const std::string& path, float& w, float& h) {
+// Natural size of an image file. Uses img_cache when provided: populates it on
+// first load so the decoded image survives into the paint pass.
+bool image_size(const std::string& path, float& w, float& h,
+                std::map<std::string, Imlib_Image>* cache = nullptr) {
+    if (cache) {
+        auto it = cache->find(path);
+        if (it != cache->end()) {
+            imlib_context_set_image(it->second);
+            w = (float)imlib_image_get_width();
+            h = (float)imlib_image_get_height();
+            return true;
+        }
+    }
     Imlib_Image im = imlib_load_image(path.c_str());
     if (!im) return false;
     imlib_context_set_image(im);
     w = (float)imlib_image_get_width();
     h = (float)imlib_image_get_height();
-    imlib_free_image();
+    if (cache) (*cache)[path] = im;  // cache takes ownership; caller must not free
+    else imlib_free_image();
     return true;
 }
 
@@ -180,6 +192,7 @@ Frag text_frag(Frag::Type type, std::string text, const ComputedStyle* style,
 }
 
 void collect_inline(const StyleMap& sm, FontCache& fonts, const ResolveImg& resolve_image,
+                    std::map<std::string, Imlib_Image>* img_cache,
                     const Node* node, const ComputedStyle& style, const std::string& href,
                     const Element* element, float voffset, bool preserve,
                     std::vector<Frag>& out) {
@@ -231,7 +244,7 @@ void collect_inline(const StyleMap& sm, FontCache& fonts, const ResolveImg& reso
         if (!src) return;
         std::string path = resolve_image ? resolve_image(*src) : *src;
         float w = 0, h = 0;
-        bool have = !path.empty() && image_size(path, w, h);
+        bool have = !path.empty() && image_size(path, w, h, img_cache);
         // Explicit width/height attributes override natural size.
         if (const std::string* a = e->attr("width")) { float v; if (parse_length_px(*a, est.font_size, v)) w = v; have = true; }
         if (const std::string* a = e->attr("height")) { float v; if (parse_length_px(*a, est.font_size, v)) h = v; have = true; }
@@ -271,8 +284,8 @@ void collect_inline(const StyleMap& sm, FontCache& fonts, const ResolveImg& reso
     else if (e->tag == Tag::Sub) child_voffset += 0.25f * est.font_size;
 
     for (const auto& c : e->children)
-        collect_inline(sm, fonts, resolve_image, c.get(), est, new_href, e, child_voffset,
-                       preserve || est.preserve_ws, out);
+        collect_inline(sm, fonts, resolve_image, img_cache, c.get(), est, new_href, e,
+                       child_voffset, preserve || est.preserve_ws, out);
 }
 
 // Lay out inline fragments into `parent` as TextRun boxes. Returns height used.
@@ -378,6 +391,7 @@ float layout_inline(FontCache& fonts, const std::vector<Frag>& frags, LayoutBox*
 // Forward decl.
 std::unique_ptr<LayoutBox> layout_block(const StyleMap& sm, FontCache& fonts,
                                         const ResolveImg& resolve_image,
+                                        std::map<std::string, Imlib_Image>* img_cache,
                                         const Element* el, const ComputedStyle& st,
                                         float x, float top, float avail_width);
 
@@ -420,15 +434,17 @@ bool has_block_children(const StyleMap& sm, const Element* el) {
 
 std::unique_ptr<LayoutBox> layout_table(const StyleMap& sm, FontCache& fonts,
                                         const ResolveImg& resolve_image,
+                                        std::map<std::string, Imlib_Image>* img_cache,
                                         const Element* el, const ComputedStyle& st,
                                         float x, float top, float avail_width);
 
 std::unique_ptr<LayoutBox> layout_block(const StyleMap& sm, FontCache& fonts,
                                         const ResolveImg& resolve_image,
+                                        std::map<std::string, Imlib_Image>* img_cache,
                                         const Element* el, const ComputedStyle& st,
                                         float x, float top, float avail_width) {
     if (st.display == DisplayType::Table)
-        return layout_table(sm, fonts, resolve_image, el, st, x, top, avail_width);
+        return layout_table(sm, fonts, resolve_image, img_cache, el, st, x, top, avail_width);
 
     // Replaced elements (img, form controls) keep their special rendering even
     // with display:block — they're just block-sized rather than inline-sized.
@@ -436,7 +452,7 @@ std::unique_ptr<LayoutBox> layout_block(const StyleMap& sm, FontCache& fonts,
         const std::string* src = el->attr("src");
         std::string path = (src && resolve_image) ? resolve_image(*src) : (src ? *src : "");
         float w = 0, h = 0;
-        bool have = !path.empty() && image_size(path, w, h);
+        bool have = !path.empty() && image_size(path, w, h, img_cache);
         if (const std::string* a = el->attr("width"))  { float v; if (parse_length_px(*a, st.font_size, v)) { w = v; have = true; } }
         if (const std::string* a = el->attr("height")) { float v; if (parse_length_px(*a, st.font_size, v)) { h = v; have = true; } }
         auto box = std::make_unique<LayoutBox>();
@@ -454,7 +470,7 @@ std::unique_ptr<LayoutBox> layout_block(const StyleMap& sm, FontCache& fonts,
             box->kind = LayoutBox::Kind::Anonymous;
             box->width = avail_width;
             std::vector<Frag> frags;
-            collect_inline(sm, fonts, resolve_image, el, st, "", el, 0, false, frags);
+            collect_inline(sm, fonts, resolve_image, img_cache, el, st, "", el, 0, false, frags);
             float h2 = layout_inline(fonts, frags, box.get(), x + st.margin.left,
                                      avail_width, top + st.margin.top, st.text_align);
             box->height = h2;
@@ -551,7 +567,7 @@ std::unique_ptr<LayoutBox> layout_block(const StyleMap& sm, FontCache& fonts,
             if (inline_run.empty()) return;
             std::vector<Frag> frags;
             for (const Node* n : inline_run)
-                collect_inline(sm, fonts, resolve_image, n, st, box->href, el, 0, st.preserve_ws, frags);
+                collect_inline(sm, fonts, resolve_image, img_cache, n, st, box->href, el, 0, st.preserve_ws, frags);
             if (!frags.empty()) {
                 auto anon = std::make_unique<LayoutBox>();
                 anon->kind = LayoutBox::Kind::Anonymous;
@@ -579,7 +595,7 @@ std::unique_ptr<LayoutBox> layout_block(const StyleMap& sm, FontCache& fonts,
                 // Adjacent-sibling vertical margin collapsing: the gap between
                 // two blocks is max(prev.bottom, next.top), not their sum.
                 cursor -= std::min(prev_margin_bottom, cst.margin.top);
-                auto child = layout_block(sm, fonts, resolve_image, ce, cst, content_x, cursor, content_width);
+                auto child = layout_block(sm, fonts, resolve_image, img_cache, ce, cst, content_x, cursor, content_width);
                 cursor += cst.margin.top + child->height + cst.margin.bottom;
                 prev_margin_bottom = cst.margin.bottom;
                 box->add(std::move(child));
@@ -591,7 +607,7 @@ std::unique_ptr<LayoutBox> layout_block(const StyleMap& sm, FontCache& fonts,
     } else {
         std::vector<Frag> frags;
         for (const auto& c : el->children)
-            collect_inline(sm, fonts, resolve_image, c.get(), st, box->href, el, 0, st.preserve_ws, frags);
+            collect_inline(sm, fonts, resolve_image, img_cache, c.get(), st, box->href, el, 0, st.preserve_ws, frags);
         float h = layout_inline(fonts, frags, box.get(), content_x, content_width, cursor,
                                 st.text_align);
         cursor += h;
@@ -621,6 +637,7 @@ void translate_box(LayoutBox* b, float dy) {
 // any overflow into their last spanned row). No auto min/max column sizing.
 std::unique_ptr<LayoutBox> layout_table(const StyleMap& sm, FontCache& fonts,
                                         const ResolveImg& resolve_image,
+                                        std::map<std::string, Imlib_Image>* img_cache,
                                         const Element* el, const ComputedStyle& st,
                                         float x, float top, float avail_width) {
     auto table = std::make_unique<LayoutBox>();
@@ -687,7 +704,7 @@ std::unique_ptr<LayoutBox> layout_table(const StyleMap& sm, FontCache& fonts,
 
     // Pass 1: lay out each cell at y=0 to learn its natural height.
     for (Cell& ci : cells)
-        ci.box = layout_block(sm, fonts, resolve_image, ci.el, *ci.st,
+        ci.box = layout_block(sm, fonts, resolve_image, img_cache, ci.el, *ci.st,
                               content_x + ci.col * colw, 0, ci.cspan * colw);
 
     // Row heights: single-row cells set the base; rowspanning cells push any
@@ -737,13 +754,13 @@ std::unique_ptr<LayoutBox> layout_table(const StyleMap& sm, FontCache& fonts,
 
 std::unique_ptr<LayoutBox> layout_document(const Document& doc, const StyleMap& sm,
                                            FontCache& fonts, float viewport_width,
-                                           const ResolveImg& resolve_image) {
-    // Prefer <body>; otherwise lay out the document root directly (browsers
-    // synthesize an implicit body for body-less fragments).
+                                           const ResolveImg& resolve_image,
+                                           const ImgPixCache& img_cache) {
+    auto* cache = img_cache ? img_cache.get() : nullptr;
     const Element* container = find_body(doc.root.get());
     if (container) {
         const ComputedStyle& st = style_of(sm, container);
-        return layout_block(sm, fonts, resolve_image, container, st, 0, 0, viewport_width);
+        return layout_block(sm, fonts, resolve_image, cache, container, st, 0, 0, viewport_width);
     }
     static const ComputedStyle kRootBlock = [] {
         ComputedStyle s;
@@ -751,7 +768,7 @@ std::unique_ptr<LayoutBox> layout_document(const Document& doc, const StyleMap& 
         s.margin = {8, 8, 8, 8};  // default body margin
         return s;
     }();
-    return layout_block(sm, fonts, resolve_image, doc.root.get(), kRootBlock, 0, 0, viewport_width);
+    return layout_block(sm, fonts, resolve_image, cache, doc.root.get(), kRootBlock, 0, 0, viewport_width);
 }
 
 std::vector<SelectOption> select_options(const Element* select) {
