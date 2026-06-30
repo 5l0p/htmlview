@@ -577,6 +577,14 @@ int run_window(const std::string& target0, const std::string& cgi_program,
     Page page = load_target(target0);
     if (!page.ok) return 1;
     std::string current_target = target0;
+    if (verbose) {
+        std::fprintf(stderr, "htmlview: navigated to %s\n", current_target.c_str());
+        if (!page.errors.empty()) {
+            std::string out;
+            dump_errors(page.errors, out);
+            std::fputs(out.c_str(), stderr);
+        }
+    }
 
     Display* dpy = XOpenDisplay(nullptr);
     if (!dpy) { std::fprintf(stderr, "htmlview: cannot open X display\n"); return 1; }
@@ -689,6 +697,8 @@ int run_window(const std::string& target0, const std::string& cgi_program,
         if (!np.ok) return false;
         page = std::move(np);
         current_target = target;
+        if (verbose)
+            std::fprintf(stderr, "htmlview: navigated to %s\n", target.c_str());
         if (verbose && !page.errors.empty()) {
             std::string out;
             dump_errors(page.errors, out);
@@ -1086,10 +1096,11 @@ int render_page_png(const Page& page, int width, const std::string& path) {
 
 int run_headless(const std::string& target, const std::string& cgi_program, int width,
                  const std::string& render_to, bool want_dom, bool want_style,
-                 bool want_errors) {
+                 bool want_errors, bool verbose) {
     Page page = cgi_program.empty() ? load_file_page(target)
                                     : load_cgi_page(cgi_program, target);
     if (!page.ok) return 1;
+    if (verbose) std::fprintf(stderr, "htmlview: navigated to %s\n", target.c_str());
 
     if (want_dom) {
         std::string out;

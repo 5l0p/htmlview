@@ -5,7 +5,7 @@
 //   htmlview --render-to out.png <file>  headless: rasterise to a PNG
 //   htmlview --dump-dom / --dump-style   print the DOM / computed styles
 //   htmlview --dump-errors               print unrecognised CSS props + unknown HTML tags
-//   htmlview --verbose                   print errors to stderr on each page load
+//   htmlview --verbose                   print navigation + errors to stderr per page load
 //   htmlview --cgi-bin "PROG" [/start]   render a CGI backend's output
 //
 // The headless flags (--render-to / --dump-*) compose with --cgi-bin: they act
@@ -59,7 +59,8 @@ int main(int argc, char** argv) {
         if (!cgi && !path) return usage();
         std::string target = path ? path : "/";
         return hv::run_headless(target, cgi ? cgi : "", width,
-                                render_to ? render_to : "", dump_dom, dump_style, dump_errors);
+                                render_to ? render_to : "", dump_dom, dump_style, dump_errors,
+                                verbose);
     }
 
     // Live window: CGI start path defaults to "/", file mode requires a path.
