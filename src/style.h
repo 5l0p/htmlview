@@ -85,6 +85,7 @@ struct ComputedStyle {
     TextDecoration text_decoration = TextDecoration::NoDecoration;
     VerticalAlign vertical_align = VerticalAlign::Baseline;
     Length width, height;        // default: auto
+    Length min_width, max_width; // auto = unconstrained
     Length line_height;          // auto = normal (~1.2x); Px = absolute; Percent = of font-size
     bool border_collapse = false;
 };

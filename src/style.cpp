@@ -278,6 +278,10 @@ void apply_decl(ComputedStyle& s, const Declaration& d,
         s.width = parse_length(v, em);
     } else if (p == "height") {
         s.height = parse_length(v, em);
+    } else if (p == "min-width") {
+        s.min_width = parse_length(v, em);
+    } else if (p == "max-width") {
+        s.max_width = parse_length(v, em);
     } else if (p == "line-height") {
         std::string lv = to_lower(trim(v));
         if (lv == "normal") { s.line_height = Length{}; }
@@ -321,7 +325,7 @@ ComputedStyle ua_defaults(const Element& e, const ComputedStyle& parent) {
     s.margin_left_auto = s.margin_right_auto = false;
     s.border = Border{};
     s.text_decoration = TextDecoration::NoDecoration;
-    s.width = s.height = Length{};
+    s.width = s.height = s.min_width = s.max_width = Length{};
     s.border_collapse = false;
     s.display = DisplayType::Inline;
 
