@@ -572,8 +572,8 @@ int run_window(const std::string& target0, const std::string& cgi_program,
     ImgPixCache img_cache = std::make_shared<std::map<std::string, Imlib_Image>>();
     Pixmap page_buf = None;  // full-document off-screen pixmap (doc width × doc height)
     bool page_dirty = true;  // rebuild page_buf before next blit
-    Imlib_Image resize_snapshot = nullptr;  // blurred capture used during live resize
     bool in_resize = false;
+    unsigned long resize_bg_pixel = 0;  // window bg pixel set at resize start
     float scroll_y = 0, doc_height = 0;
     const Element* hovered = nullptr;
     const Element* focused = nullptr;      // focused text-input element
@@ -601,16 +601,6 @@ int run_window(const std::string& target0, const std::string& cgi_program,
         relayout();
     };
     auto repaint = [&]() {
-        // While the user is dragging a resize, always show the blurred snapshot
-        // rather than the stale page_buf (Expose events fire during resize too).
-        if (in_resize && resize_snapshot) {
-            imlib_context_set_image(resize_snapshot);
-            imlib_context_set_drawable(buffer);
-            imlib_context_set_anti_alias(1);
-            imlib_render_image_on_drawable_at_size(0, 0, width, height);
-            XCopyArea(dpy, buffer, win, gc, 0, 0, width, height, 0, 0);
-            return;
-        }
         // Rebuild the full-document pixmap only when content changed.
         if (page_dirty || page_buf == None) {
             if (page_buf != None) { XFreePixmap(dpy, page_buf); page_buf = None; }
@@ -774,24 +764,30 @@ int run_window(const std::string& target0, const std::string& cgi_program,
             case ConfigureNotify:
                 if (ev.xconfigure.width != width || ev.xconfigure.height != height) {
                     if (!in_resize) {
-                        // First event of a drag: capture the current view as a
-                        // blurred snapshot to display while the user is resizing.
+                        // First resize event: note the page background colour so
+                        // X fills any newly-exposed window area with it rather
+                        // than white, and we can clear the new buffer to match.
                         in_resize = true;
-                        if (resize_snapshot) {
-                            imlib_context_set_image(resize_snapshot);
-                            imlib_free_image();
-                        }
-                        imlib_context_set_drawable(buffer);
-                        resize_snapshot = imlib_create_image_from_drawable(0, 0, 0, width, height, 0);
-                        if (resize_snapshot) {
-                            imlib_context_set_image(resize_snapshot);
-                            imlib_image_blur(6);
-                        }
+                        RGBA bg{255, 255, 255, 255};
+                        if (root && root->style && !root->style->background_color.transparent())
+                            bg = root->style->background_color;
+                        XColor xc{};
+                        xc.red   = (unsigned short)(bg.r * 257);
+                        xc.green = (unsigned short)(bg.g * 257);
+                        xc.blue  = (unsigned short)(bg.b * 257);
+                        xc.flags = DoRed | DoGreen | DoBlue;
+                        resize_bg_pixel = XAllocColor(dpy, cmap, &xc) ? xc.pixel
+                                                                       : WhitePixel(dpy, screen);
+                        XSetWindowBackground(dpy, win, resize_bg_pixel);
                     }
                     width = ev.xconfigure.width;
                     height = ev.xconfigure.height;
                     XFreePixmap(dpy, buffer);
                     buffer = XCreatePixmap(dpy, win, width, height, depth);
+                    // Fill buffer with the background colour so any area beyond
+                    // the old page_buf dimensions shows the right colour.
+                    XSetForeground(dpy, gc, resize_bg_pixel);
+                    XFillRectangle(dpy, buffer, gc, 0, 0, width, height);
                     // Arm the debounce: commit to a real relayout 150 ms after
                     // the last resize event.
                     resize_deadline = Clock::now() + std::chrono::milliseconds(150);
@@ -973,11 +969,6 @@ int run_window(const std::string& target0, const std::string& cgi_program,
                 do_refresh();
             if (in_resize && Clock::now() >= resize_deadline) {
                 in_resize = false;
-                if (resize_snapshot) {
-                    imlib_context_set_image(resize_snapshot);
-                    imlib_free_image();
-                    resize_snapshot = nullptr;
-                }
                 relayout();
                 clamp_scroll();
                 repaint();
@@ -986,7 +977,6 @@ int run_window(const std::string& target0, const std::string& cgi_program,
     }  // while (running)
 
     XFreeCursor(dpy, hand);
-    if (resize_snapshot) { imlib_context_set_image(resize_snapshot); imlib_free_image(); }
     if (page_buf != None) XFreePixmap(dpy, page_buf);
     XFreePixmap(dpy, buffer);
     XFreeGC(dpy, gc);
