@@ -788,9 +788,14 @@ int run_window(const std::string& target0, const std::string& cgi_program,
 
     // Reload the current page (the refresh tick fired). Honours a meta-refresh
     // URL if the page set one; otherwise re-requests current_target in place.
+    // Keeps the current scroll position instead of snapping back to the top.
     auto do_refresh = [&]() {
+        float saved_scroll = scroll_y;
         if (!eff_refresh_url.empty()) navigate(eff_refresh_url, /*push=*/false);
         else load_into(current_target);
+        scroll_y = saved_scroll;
+        clamp_scroll();
+        repaint();
     };
 
     int xfd = ConnectionNumber(dpy);
