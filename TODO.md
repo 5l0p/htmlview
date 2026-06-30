@@ -135,3 +135,30 @@ Beyond the core model, 2.0's distinctive additions — and our gaps:
 > Out of scope for 2.0 (arrived later, already partly done here as extras):
 > tables (HTML 3.0+ — we have a basic implementation), most presentational
 > attributes and CSS (1996+), frames (4.0), and scripting.
+
+## Bugs
+
+- [ ] **Out-of-bounds read in HTML parser** (`src/html_parser.cpp:33`). The parser
+      accesses `s[pos + 1]` without bounds-checking; if input ends with a bare `<`,
+      this reads past the end of the string (undefined behaviour). Fix: add `pos + 1 < n &&`
+      guard before the access.
+
+- [ ] **BackSpace corrupts multi-byte UTF-8** (`src/window.cpp:857`). In text inputs,
+      `text.pop_back()` removes one **byte** instead of one Unicode code point. For
+      multi-byte UTF-8 characters (2–4 bytes), this leaves behind invalid continuation
+      bytes. Fix: walk backward from the end, skipping all bytes in the range `0x80–0xBF`,
+      then erase; this removes a complete code point.
+
+- [ ] **Form reset wipes all forms' state** (`src/window.cpp:811`). When resetting
+      a `<form>`, the code calls `page.form.clear()`, which destroys widget state for
+      **every** form on the page. Only the target form is re-seeded via
+      `init_form_state()`, so other forms permanently lose their in-progress values.
+      Fix: selectively erase only the elements that belong to the target `<form>` by
+      walking its subtree and erasing those keys from the map.
+
+- [ ] **`size_t` underflow in pre-formatted text** (`src/layout.cpp:193`, `src/paint.cpp:296`).
+      When computing `nl - start` where `nl == std::string::npos`, the subtraction wraps
+      to a huge `size_t`; `substr()` silently clamps it to the remaining length, so output
+      happens to be correct but the code is fragile and confusing. Fix: pass `npos` directly
+      to `substr()` for "rest of string" when no newline was found, or check for `npos`
+      before computing the length.

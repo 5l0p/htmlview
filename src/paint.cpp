@@ -293,7 +293,7 @@ void Painter::paint_widget(const LayoutBox* box, float x, float y) {
                     size_t s = 0;
                     while (true) {
                         size_t nl = text.find('\n', s);
-                        last = text.substr(s, nl - s);
+                        last = text.substr(s, nl == std::string::npos ? std::string::npos : nl - s);
                         if (!last.empty())
                             XftDrawStringUtf8(xft_, xft_color(dark), box->font, tx,
                                               ly + box->font->ascent,

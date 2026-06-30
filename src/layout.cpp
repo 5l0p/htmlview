@@ -191,7 +191,7 @@ void collect_inline(const StyleMap& sm, FontCache& fonts, const ResolveImg& reso
             size_t start = 0;
             while (true) {
                 size_t nl = text.find('\n', start);
-                std::string line = text.substr(start, nl - start);
+                std::string line = text.substr(start, nl == std::string::npos ? std::string::npos : nl - start);
                 out.push_back(text_frag(Frag::Word, line, &style, font, href, element, voffset));
                 if (nl == std::string::npos) break;
                 out.push_back(text_frag(Frag::Break, "", &style, font, href, element, voffset));
@@ -429,6 +429,58 @@ std::unique_ptr<LayoutBox> layout_block(const StyleMap& sm, FontCache& fonts,
                                         float x, float top, float avail_width) {
     if (st.display == DisplayType::Table)
         return layout_table(sm, fonts, resolve_image, el, st, x, top, avail_width);
+
+    // Replaced elements (img, form controls) keep their special rendering even
+    // with display:block — they're just block-sized rather than inline-sized.
+    if (el->tag == Tag::Img) {
+        const std::string* src = el->attr("src");
+        std::string path = (src && resolve_image) ? resolve_image(*src) : (src ? *src : "");
+        float w = 0, h = 0;
+        bool have = !path.empty() && image_size(path, w, h);
+        if (const std::string* a = el->attr("width"))  { float v; if (parse_length_px(*a, st.font_size, v)) { w = v; have = true; } }
+        if (const std::string* a = el->attr("height")) { float v; if (parse_length_px(*a, st.font_size, v)) { h = v; have = true; } }
+        auto box = std::make_unique<LayoutBox>();
+        box->element = el;
+        box->style = &st;
+        box->x = x + st.margin.left;
+        box->y = top + st.margin.top;
+        if (have && w > 0 && h > 0) {
+            box->kind = LayoutBox::Kind::Image;
+            box->img_src = path;
+            box->width = w;
+            box->height = h;
+        } else {
+            // Fallback: render alt text (or nothing) as an empty inline block.
+            box->kind = LayoutBox::Kind::Anonymous;
+            box->width = avail_width;
+            std::vector<Frag> frags;
+            collect_inline(sm, fonts, resolve_image, el, st, "", el, 0, false, frags);
+            float h2 = layout_inline(fonts, frags, box.get(), x + st.margin.left,
+                                     avail_width, top + st.margin.top, st.text_align);
+            box->height = h2;
+        }
+        return box;
+    }
+    if (el->tag == Tag::Input || el->tag == Tag::Button ||
+        el->tag == Tag::Textarea || el->tag == Tag::Select) {
+        Frag f;
+        auto box = std::make_unique<LayoutBox>();
+        box->element = el;
+        box->style = &st;
+        box->x = x + st.margin.left;
+        box->y = top + st.margin.top;
+        if (widget_frag(el, st, fonts, f)) {
+            box->kind = LayoutBox::Kind::Widget;
+            box->widget = f.widget;
+            box->text = f.text;
+            box->font = f.font;
+            box->width = f.img_w;
+            box->height = f.img_h;
+        } else {
+            box->kind = LayoutBox::Kind::Block;
+        }
+        return box;
+    }
 
     auto box = std::make_unique<LayoutBox>();
     box->kind = LayoutBox::Kind::Block;

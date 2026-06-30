@@ -29,7 +29,7 @@ public:
         while (pos < n) {
             if (s[pos] == '<') {
                 if (starts_with("<!--")) { skip_comment(); continue; }
-                if (s[pos + 1] == '!' || s[pos + 1] == '?') { skip_bogus(); continue; }
+                if (pos + 1 < n && (s[pos + 1] == '!' || s[pos + 1] == '?')) { skip_bogus(); continue; }
                 if (s[pos + 1] == '/') { parse_end_tag(doc); continue; }
                 parse_start_tag(doc);
             } else {

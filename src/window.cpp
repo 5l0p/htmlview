@@ -808,7 +808,16 @@ int run_window(const std::string& target0, const std::string& cgi_program,
                                 if (is_submit) { repaint(); submit_form(be); }
                                 else if (type == "reset") {
                                     if (const Element* form = enclosing_form(be)) {
-                                        page.form.clear();  // re-seed defaults from the DOM
+                                        // Erase only controls that belong to this form.
+                                        std::function<void(const Node*)> erase_form =
+                                            [&](const Node* n) {
+                                                if (!n->is_element()) return;
+                                                const auto* e = static_cast<const Element*>(n);
+                                                page.form.erase(e);
+                                                for (const auto& c : e->children)
+                                                    erase_form(c.get());
+                                            };
+                                        erase_form(form);
                                         init_form_state(form, page.form);
                                     }
                                     repaint();
@@ -854,7 +863,14 @@ int run_window(const std::string& target0, const std::string& cgi_program,
                         if (textarea) { text += '\n'; repaint(); }
                         else { focused = nullptr; repaint(); }  // single-line: blur
                     } else if (ks2 == XK_BackSpace) {
-                        if (!text.empty()) text.pop_back();
+                        if (!text.empty()) {
+                            // Remove a full UTF-8 code point: skip back over
+                            // continuation bytes (0x80–0xBF) then erase one more.
+                            while (!text.empty() &&
+                                   ((unsigned char)text.back() & 0xC0) == 0x80)
+                                text.pop_back();
+                            if (!text.empty()) text.pop_back();
+                        }
                         repaint();
                     } else if (n > 0 && (unsigned char)buf[0] >= 0x20 && buf[0] != 0x7f) {
                         text.append(buf, n);
