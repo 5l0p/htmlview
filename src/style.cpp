@@ -295,6 +295,10 @@ void apply_decl(ComputedStyle& s, const Declaration& d,
         }
     } else if (p == "border-collapse") {
         s.border_collapse = (to_lower(trim(v)) == "collapse");
+    } else if (p == "box-sizing") {
+        std::string lv = to_lower(trim(v));
+        if (lv == "border-box") s.box_sizing_border_box = true;
+        else if (lv == "content-box") s.box_sizing_border_box = false;
     } else if (p == "white-space") {
         std::string lv = to_lower(trim(v));
         s.preserve_ws = (lv == "pre" || lv == "pre-wrap" || lv == "pre-line");
@@ -327,6 +331,7 @@ ComputedStyle ua_defaults(const Element& e, const ComputedStyle& parent) {
     s.text_decoration = TextDecoration::NoDecoration;
     s.width = s.height = s.min_width = s.max_width = Length{};
     s.border_collapse = false;
+    s.box_sizing_border_box = false;
     s.display = DisplayType::Inline;
 
     auto block = [&] { s.display = DisplayType::Block; };
@@ -358,10 +363,24 @@ ComputedStyle ua_defaults(const Element& e, const ComputedStyle& parent) {
         case Tag::I: case Tag::Em: s.font_style = FontStyle::Italic; break;
         case Tag::Table: s.display = DisplayType::Table; s.margin = {0, 0, 0, 0}; break;
         case Tag::Tr: s.display = DisplayType::TableRow; break;
-        case Tag::Td: s.display = DisplayType::TableCell; s.padding = {2, 2, 2, 2}; break;
-        case Tag::Th:
-            s.display = DisplayType::TableCell; s.padding = {2, 2, 2, 2};
-            s.font_weight = FontWeight::Bold; s.text_align = TextAlign::Center; break;
+        case Tag::Td: case Tag::Th: {
+            s.display = DisplayType::TableCell;
+            // cellpadding on the owning <table> sets the default cell padding
+            // (like cellspacing, a classic HTML attribute with no CSS
+            // equivalent); author CSS declarations still win over it.
+            float pad = 2;
+            if (e.parent && e.parent->parent && e.parent->parent->is_element()) {
+                const auto* table = static_cast<const Element*>(e.parent->parent);
+                if (const std::string* cp = table->attr("cellpadding"))
+                    pad = (float)std::atoi(cp->c_str());
+            }
+            s.padding = {pad, pad, pad, pad};
+            if (e.tag == Tag::Th) {
+                s.font_weight = FontWeight::Bold;
+                s.text_align = TextAlign::Center;
+            }
+            break;
+        }
         case Tag::Title: case Tag::Style: s.display = DisplayType::NoDisplay; break;
         // Early-core block elements.
         case Tag::Blockquote: block(); s.margin = {16, 40, 16, 40}; break;
@@ -381,8 +400,27 @@ ComputedStyle ua_defaults(const Element& e, const ComputedStyle& parent) {
         case Tag::Form: block(); s.margin = {0, 0, 8, 0}; break;
         case Tag::Option: s.display = DisplayType::NoDisplay; break;  // not rendered inline
         // Form controls render as inline replaced widgets (see layout/paint).
-        case Tag::Input: case Tag::Button: case Tag::Textarea:
-        case Tag::Select: case Tag::Label: break;
+        // Native controls size like `box-sizing: border-box` (an explicit
+        // CSS width/height sets the outer box, matching real browsers), with
+        // a default border/padding/fill so they still look like controls
+        // when the author sets no CSS at all.
+        case Tag::Input: case Tag::Button: case Tag::Textarea: case Tag::Select: {
+            std::string type;
+            if (e.tag == Tag::Input) if (const std::string* t = e.attr("type")) type = to_lower(*t);
+            if (type == "checkbox" || type == "radio" || type == "hidden") break;
+            s.box_sizing_border_box = true;
+            s.border = Border{};
+            s.border.top = s.border.right = s.border.bottom = s.border.left =
+                BorderSide{1, RGBA{118, 118, 118, 255}, BorderStyle::Solid};
+            bool is_button = e.tag == Tag::Button ||
+                             (e.tag == Tag::Input &&
+                              (type == "button" || type == "submit" || type == "reset" ||
+                               type == "image"));
+            s.padding = is_button ? Edges{4, 8, 4, 8} : Edges{3, 4, 3, 4};
+            s.background_color = is_button ? RGBA{225, 225, 225, 255} : RGBA{255, 255, 255, 255};
+            break;
+        }
+        case Tag::Label: break;
         case Tag::Span: case Tag::Br: case Tag::Img: break;  // inline
         default: break;
     }

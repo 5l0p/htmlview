@@ -88,6 +88,10 @@ struct ComputedStyle {
     Length min_width, max_width; // auto = unconstrained
     Length line_height;          // auto = normal (~1.2x); Px = absolute; Percent = of font-size
     bool border_collapse = false;
+    // false (content-box, the CSS initial value): `width`/`height` set the
+    // content box, padding/border add on top. true (border-box): `width`/
+    // `height` set the outer (border) box, padding/border eat into it.
+    bool box_sizing_border_box = false;
 };
 
 using StyleMap = std::unordered_map<const Element*, ComputedStyle>;

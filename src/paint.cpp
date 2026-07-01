@@ -221,7 +221,6 @@ void Painter::paint_box(const LayoutBox* box, float ox, float oy) {
 void Painter::paint_widget(const LayoutBox* box, float x, float y) {
     const RGBA border{120, 120, 120, 255};
     const RGBA white{255, 255, 255, 255};
-    const RGBA face{225, 225, 225, 255};
     const RGBA dark{30, 30, 30, 255};
     const RGBA focus{60, 120, 220, 255};
 
@@ -241,6 +240,16 @@ void Painter::paint_widget(const LayoutBox* box, float x, float y) {
             is_password = (lt == "password");
         }
     }
+    // Text color for labels/typed text: the element's own CSS `color`
+    // (falls back to near-black, same as the old hardcoded value).
+    RGBA text_color = box->style ? box->style->color : dark;
+
+    // Background/border for TextInput/Button/Select come from the box's own
+    // CSS (default or author-set) and are already painted by paint_box just
+    // before this call; only the focus ring is drawn here, on top.
+    auto focus_ring = [&] {
+        if (focused) stroke_rect(x, y, box->width, box->height, focus);
+    };
 
     switch (box->widget) {
         case WidgetKind::Radio: {
@@ -269,21 +278,19 @@ void Painter::paint_widget(const LayoutBox* box, float x, float y) {
             break;
         }
         case WidgetKind::Button: {
-            fill_rect(x, y, box->width, box->height, face);
-            stroke_rect(x, y, box->width, box->height, focused ? focus : border);
+            focus_ring();
             if (box->font && !box->text.empty()) {
                 int tw = fonts_.measure(box->font, box->text);
                 int tx = (int)(x + (box->width - tw) / 2);
                 int baseline = (int)(y + (box->height - (box->font->ascent + box->font->descent)) / 2 +
                                      box->font->ascent);
-                XftDrawStringUtf8(xft_, xft_color(dark), box->font, tx, baseline,
+                XftDrawStringUtf8(xft_, xft_color(text_color), box->font, tx, baseline,
                                   (const FcChar8*)box->text.data(), (int)box->text.size());
             }
             break;
         }
         case WidgetKind::Select: {
-            fill_rect(x, y, box->width, box->height, face);
-            stroke_rect(x, y, box->width, box->height, border);
+            focus_ring();
             std::string label;
             if (box->element) {
                 auto opts = select_options(box->element);
@@ -293,11 +300,11 @@ void Painter::paint_widget(const LayoutBox* box, float x, float y) {
             if (box->font && !label.empty()) {
                 int baseline = (int)(y + (box->height - (box->font->ascent + box->font->descent)) / 2 +
                                      box->font->ascent);
-                XftDrawStringUtf8(xft_, xft_color(dark), box->font, (int)x + 6, baseline,
+                XftDrawStringUtf8(xft_, xft_color(text_color), box->font, (int)x + 6, baseline,
                                   (const FcChar8*)label.data(), (int)label.size());
             }
             // down arrow at the right edge
-            XftColor* col = xft_color(dark);
+            XftColor* col = xft_color(text_color);
             XSetForeground(dpy_, gc_, col->pixel);
             int ax = (int)(x + box->width) - 12, ay = (int)(y + box->height / 2) - 2;
             XPoint tri[3] = {{(short)ax, (short)ay}, {(short)(ax + 8), (short)ay},
@@ -306,8 +313,7 @@ void Painter::paint_widget(const LayoutBox* box, float x, float y) {
             break;
         }
         case WidgetKind::TextInput: {
-            fill_rect(x, y, box->width, box->height, white);
-            stroke_rect(x, y, box->width, box->height, focused ? focus : border);
+            focus_ring();
             std::string text = ws ? ws->text : std::string();
             if (is_password) {  // mask: one bullet per code point
                 int n = 0;
@@ -318,17 +324,24 @@ void Painter::paint_widget(const LayoutBox* box, float x, float y) {
             }
             if (box->font) {
                 int line_h = box->font->ascent + box->font->descent;
-                int tx = (int)x + 4;
+                // Text inset: the control's own CSS padding + border (falls
+                // back to the UA default set in ua_defaults if unstyled).
+                float inset_l = 4, inset_t = 3;
+                if (box->style) {
+                    inset_l = box->style->padding.left + box->style->border.left.width;
+                    inset_t = box->style->padding.top + box->style->border.top.width;
+                }
+                int tx = (int)(x + inset_l);
                 if (is_textarea) {
                     // Render each newline-separated line; caret after the last.
-                    int ly = (int)y + 3;
+                    int ly = (int)(y + inset_t);
                     std::string last;
                     size_t s = 0;
                     while (true) {
                         size_t nl = text.find('\n', s);
                         last = text.substr(s, nl == std::string::npos ? std::string::npos : nl - s);
                         if (!last.empty())
-                            XftDrawStringUtf8(xft_, xft_color(dark), box->font, tx,
+                            XftDrawStringUtf8(xft_, xft_color(text_color), box->font, tx,
                                               ly + box->font->ascent,
                                               (const FcChar8*)last.data(), (int)last.size());
                         if (nl == std::string::npos) break;
@@ -337,16 +350,16 @@ void Painter::paint_widget(const LayoutBox* box, float x, float y) {
                     }
                     if (focused && form_->caret) {
                         int cx = tx + fonts_.measure(box->font, last) + 1;
-                        fill_rect(cx, ly + 3, 1, line_h, dark);
+                        fill_rect(cx, ly + (int)inset_t, 1, line_h, text_color);
                     }
                 } else {
-                    int baseline = (int)(y + box->font->ascent + 3);
+                    int baseline = (int)(y + box->font->ascent + inset_t);
                     if (!text.empty())
-                        XftDrawStringUtf8(xft_, xft_color(dark), box->font, tx, baseline,
+                        XftDrawStringUtf8(xft_, xft_color(text_color), box->font, tx, baseline,
                                           (const FcChar8*)text.data(), (int)text.size());
                     if (focused && form_->caret) {
                         int cx = tx + fonts_.measure(box->font, text) + 1;
-                        fill_rect(cx, y + 3, 1, line_h, dark);
+                        fill_rect(cx, (int)(y + inset_t), 1, line_h, text_color);
                     }
                 }
             }

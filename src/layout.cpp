@@ -71,7 +71,10 @@ std::string trimmed(const std::string& s) {
 
 // Build a widget fragment for a form control; returns false if not a control
 // (or a hidden one). Intrinsic size goes in img_w/img_h, the label in text.
-bool widget_frag(const Element* e, const ComputedStyle& st, FontCache& fonts, Frag& f) {
+// `avail_width` is the containing block's content width, for resolving a
+// percentage CSS `width` (e.g. the common `input { width: 100% }`).
+bool widget_frag(const Element* e, const ComputedStyle& st, FontCache& fonts, Frag& f,
+                 float avail_width) {
     XftFont* font = fonts.get(st);
     float line_h = (float)(font->ascent + font->descent);
     float charw = (float)fonts.measure(font, "0");
@@ -83,6 +86,24 @@ bool widget_frag(const Element* e, const ComputedStyle& st, FontCache& fonts, Fr
     auto attr = [&](const char* k) -> std::string {
         const std::string* v = e->attr(k);
         return v ? *v : std::string();
+    };
+
+    // Explicit CSS width/height overrides the intrinsic (attribute-derived)
+    // size computed above. Applied uniformly so box-sizing means the same
+    // thing for every kind of control.
+    auto apply_css_size = [&] {
+        if (!st.width.is_auto()) {
+            float specified = std::max(0.0f, st.width.resolve(avail_width, f.img_w));
+            float extra = st.padding.left + st.padding.right +
+                          st.border.left.width + st.border.right.width;
+            f.img_w = st.box_sizing_border_box ? specified : specified + extra;
+        }
+        if (st.height.unit == Length::Px) {
+            float specified = std::max(0.0f, st.height.value);
+            float extra = st.padding.top + st.padding.bottom +
+                          st.border.top.width + st.border.bottom.width;
+            f.img_h = st.box_sizing_border_box ? specified : specified + extra;
+        }
     };
 
     if (e->tag == Tag::Input) {
@@ -106,6 +127,7 @@ bool widget_frag(const Element* e, const ComputedStyle& st, FontCache& fonts, Fr
             f.text = label;
             f.img_w = (float)fonts.measure(font, label) + 16;
             f.img_h = line_h + 8;
+            apply_css_size();
             return true;
         }
         // text-like input
@@ -114,6 +136,7 @@ bool widget_frag(const Element* e, const ComputedStyle& st, FontCache& fonts, Fr
         if (const std::string* s = e->attr("size")) { int v = std::atoi(s->c_str()); if (v > 0) size = v; }
         f.img_w = size * charw + 8;
         f.img_h = line_h + 6;
+        apply_css_size();
         return true;
     }
     if (e->tag == Tag::Button) {
@@ -122,6 +145,7 @@ bool widget_frag(const Element* e, const ComputedStyle& st, FontCache& fonts, Fr
         if (f.text.empty()) f.text = "Button";
         f.img_w = (float)fonts.measure(font, f.text) + 16;
         f.img_h = line_h + 8;
+        apply_css_size();
         return true;
     }
     if (e->tag == Tag::Textarea) {
@@ -131,6 +155,7 @@ bool widget_frag(const Element* e, const ComputedStyle& st, FontCache& fonts, Fr
         if (const std::string* s = e->attr("rows")) { int v = std::atoi(s->c_str()); if (v > 0) rows = v; }
         f.img_w = cols * charw + 8;
         f.img_h = rows * line_h + 6;
+        apply_css_size();
         return true;
     }
     if (e->tag == Tag::Select) {
@@ -140,6 +165,7 @@ bool widget_frag(const Element* e, const ComputedStyle& st, FontCache& fonts, Fr
             widest = std::max(widest, (float)fonts.measure(font, o.label));
         f.img_w = widest + 28;  // room for the arrow
         f.img_h = line_h + 8;
+        apply_css_size();
         return true;
     }
     return false;
@@ -195,7 +221,7 @@ void collect_inline(const StyleMap& sm, FontCache& fonts, const ResolveImg& reso
                     std::map<std::string, Imlib_Image>* img_cache,
                     const Node* node, const ComputedStyle& style, const std::string& href,
                     const Element* element, float voffset, bool preserve,
-                    std::vector<Frag>& out) {
+                    std::vector<Frag>& out, float avail_width) {
     if (node->is_text()) {
         const std::string& d = static_cast<const Text*>(node)->data;
         XftFont* font = fonts.get(style);
@@ -232,7 +258,7 @@ void collect_inline(const StyleMap& sm, FontCache& fonts, const ResolveImg& reso
     if (e->tag == Tag::Input || e->tag == Tag::Button || e->tag == Tag::Textarea ||
         e->tag == Tag::Select) {
         Frag f;
-        if (widget_frag(e, est, fonts, f)) out.push_back(std::move(f));
+        if (widget_frag(e, est, fonts, f, avail_width)) out.push_back(std::move(f));
         return;  // controls don't recurse into their children for inline flow
     }
     if (e->tag == Tag::Br) {
@@ -285,7 +311,7 @@ void collect_inline(const StyleMap& sm, FontCache& fonts, const ResolveImg& reso
 
     for (const auto& c : e->children)
         collect_inline(sm, fonts, resolve_image, img_cache, c.get(), est, new_href, e,
-                       child_voffset, preserve || est.preserve_ws, out);
+                       child_voffset, preserve || est.preserve_ws, out, avail_width);
 }
 
 // Lay out inline fragments into `parent` as TextRun boxes. Returns height used.
@@ -387,6 +413,7 @@ float layout_inline(FontCache& fonts, const std::vector<Frag>& frags, LayoutBox*
                 box->text = r.text;   // button label
                 box->font = r.font;
                 box->color = r.color;
+                box->style = r.style;  // paint_widget reads CSS color/padding/border from this
             } else {
                 box->kind = LayoutBox::Kind::TextRun;
                 box->text = r.text;
@@ -538,7 +565,8 @@ std::unique_ptr<LayoutBox> layout_block(const StyleMap& sm, FontCache& fonts,
             box->kind = LayoutBox::Kind::Anonymous;
             box->width = avail_width;
             std::vector<Frag> frags;
-            collect_inline(sm, fonts, resolve_image, img_cache, el, st, "", el, 0, false, frags);
+            collect_inline(sm, fonts, resolve_image, img_cache, el, st, "", el, 0, false, frags,
+                          avail_width);
             float h2 = layout_inline(fonts, frags, box.get(), x + st.margin.left,
                                      avail_width, top + st.margin.top, st.text_align);
             box->height = h2;
@@ -553,7 +581,7 @@ std::unique_ptr<LayoutBox> layout_block(const StyleMap& sm, FontCache& fonts,
         box->style = &st;
         box->x = x + st.margin.left;
         box->y = top + st.margin.top;
-        if (widget_frag(el, st, fonts, f)) {
+        if (widget_frag(el, st, fonts, f, avail_width)) {
             box->kind = LayoutBox::Kind::Widget;
             box->widget = f.widget;
             box->text = f.text;
@@ -579,7 +607,10 @@ std::unique_ptr<LayoutBox> layout_block(const StyleMap& sm, FontCache& fonts,
     // leftover space (margin:auto centering).
     float content_width;
     if (!st.width.is_auto()) {
-        content_width = std::max(0.0f, st.width.resolve(avail_width, 0));
+        float specified = std::max(0.0f, st.width.resolve(avail_width, 0));
+        content_width = st.box_sizing_border_box
+                            ? std::max(0.0f, specified - pl - pr - bl - br)
+                            : specified;
         float free = avail_width - content_width - pl - pr - bl - br
                      - (st.margin_left_auto ? 0 : ml) - (st.margin_right_auto ? 0 : mr);
         if (st.margin_left_auto && st.margin_right_auto) ml = mr = std::max(0.0f, free / 2);
@@ -635,7 +666,8 @@ std::unique_ptr<LayoutBox> layout_block(const StyleMap& sm, FontCache& fonts,
             if (inline_run.empty()) return;
             std::vector<Frag> frags;
             for (const Node* n : inline_run)
-                collect_inline(sm, fonts, resolve_image, img_cache, n, st, box->href, el, 0, st.preserve_ws, frags);
+                collect_inline(sm, fonts, resolve_image, img_cache, n, st, box->href, el, 0, st.preserve_ws, frags,
+                              content_width);
             if (!frags.empty()) {
                 auto anon = std::make_unique<LayoutBox>();
                 anon->kind = LayoutBox::Kind::Anonymous;
@@ -675,7 +707,8 @@ std::unique_ptr<LayoutBox> layout_block(const StyleMap& sm, FontCache& fonts,
     } else {
         std::vector<Frag> frags;
         for (const auto& c : el->children)
-            collect_inline(sm, fonts, resolve_image, img_cache, c.get(), st, box->href, el, 0, st.preserve_ws, frags);
+            collect_inline(sm, fonts, resolve_image, img_cache, c.get(), st, box->href, el, 0, st.preserve_ws, frags,
+                          content_width);
         float h = layout_inline(fonts, frags, box.get(), content_x, content_width, cursor,
                                 st.text_align);
         cursor += h;
@@ -715,10 +748,16 @@ std::unique_ptr<LayoutBox> layout_table(const StyleMap& sm, FontCache& fonts,
 
     float bl = st.border.left.width, brd = st.border.right.width;
     float pl = st.padding.left, pr = st.padding.right;
-    float content_width = !st.width.is_auto()
-                              ? std::max(0.0f, st.width.resolve(avail_width, 0))
-                              : std::max(0.0f, avail_width - st.margin.left - st.margin.right
-                                                   - bl - brd - pl - pr);
+    float content_width;
+    if (!st.width.is_auto()) {
+        float specified = std::max(0.0f, st.width.resolve(avail_width, 0));
+        content_width = st.box_sizing_border_box
+                            ? std::max(0.0f, specified - pl - pr - bl - brd)
+                            : specified;
+    } else {
+        content_width = std::max(0.0f, avail_width - st.margin.left - st.margin.right
+                                            - bl - brd - pl - pr);
+    }
     table->x = x + st.margin.left;
     table->y = top + st.margin.top;
     table->width = content_width + pl + pr + bl + brd;
@@ -776,16 +815,19 @@ std::unique_ptr<LayoutBox> layout_table(const StyleMap& sm, FontCache& fonts,
     // Column widths: a single-column cell with an explicit CSS width sets
     // that column's width; the rest of the table's width is split evenly
     // across the remaining columns. No intrinsic/content-based sizing.
-    // CSS width is content-box width, but the column slot has to reserve
-    // the cell's full outer (border) box, or its padding/border pushes the
-    // rendered cell wider than its slot and it overflows into the next one.
+    // CSS width is content-box width by default, but the column slot has to
+    // reserve the cell's full outer (border) box, or its padding/border
+    // pushes the rendered cell wider than its slot and it overflows into the
+    // next one -- unless the cell opts into box-sizing:border-box, in which
+    // case the specified width already *is* that outer box.
     std::vector<float> colw(ncols, 0.0f);
     std::vector<bool> colw_set(ncols, false);
     for (const Cell& ci : cells)
         if (ci.cspan == 1 && !ci.st->width.is_auto()) {
-            float outer = ci.st->width.resolve(content_width, 0)
-                         + ci.st->padding.left + ci.st->padding.right
-                         + ci.st->border.left.width + ci.st->border.right.width;
+            float pb = ci.st->padding.left + ci.st->padding.right
+                     + ci.st->border.left.width + ci.st->border.right.width;
+            float specified = ci.st->width.resolve(content_width, 0);
+            float outer = ci.st->box_sizing_border_box ? specified : specified + pb;
             colw[ci.col] = std::max(colw[ci.col], outer);
             colw_set[ci.col] = true;
         }

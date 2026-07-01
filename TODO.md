@@ -162,3 +162,12 @@ Beyond the core model, 2.0's distinctive additions — and our gaps:
       happens to be correct but the code is fragile and confusing. Fix: pass `npos` directly
       to `substr()` for "rest of string" when no newline was found, or check for `npos`
       before computing the length.
+
+- [ ] **Segfault loading images in the `make static` build**. The fully static
+      binary (see `make static`) crashes on image loads that work fine in the
+      dynamic build. Likely an Imlib2 loader-module issue — Imlib2 normally
+      `dlopen()`s its format loaders (PNG/JPEG/etc.) from a shared-lib path at
+      runtime, which doesn't exist/resolve the same way once everything is
+      statically linked. Needs investigation: either force Imlib2's built-in
+      loaders to be linked in directly, or find another way to make format
+      loading work without dlopen in the static binary.
